@@ -8,32 +8,30 @@ export type SignalEvent =
   | { type: "save"; postId: string; career: string; t: number }
   | { type: "ask_ai"; career: string; t: number };
 
-const KEY = "pursuit:signals:v1";
+/** Legacy key from builds that persisted signals to disk — never read again; cleared on load & clear. */
+const LEGACY_SIGNALS_KEY = "pursuit:signals:v1";
 
-/** Read stored engagement events (for trait vector / recommendations). */
+const MAX_EVENTS = 500;
+
+/** In-memory only: resets when the JS runtime restarts (cold app launch). */
+let sessionEvents: SignalEvent[] = [];
+
+void AsyncStorage.removeItem(LEGACY_SIGNALS_KEY).catch(() => {
+  /* ignore */
+});
+
+/** Read engagement events for this session (trait vector / recommendations). */
 export async function readSignalEvents(): Promise<SignalEvent[]> {
-  try {
-    const raw = await AsyncStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as SignalEvent[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function writeAll(events: SignalEvent[]) {
-  try {
-    await AsyncStorage.setItem(KEY, JSON.stringify(events.slice(-500)));
-  } catch {
-    /* ignore */
-  }
+  return [...sessionEvents];
 }
 
 export async function trackEvent(
   e: Record<string, unknown> & { type: SignalEvent["type"] },
 ) {
-  const all = await readSignalEvents();
-  all.push({ ...e, t: Date.now() } as SignalEvent);
-  await writeAll(all);
+  sessionEvents.push({ ...e, t: Date.now() } as SignalEvent);
+  if (sessionEvents.length > MAX_EVENTS) {
+    sessionEvents = sessionEvents.slice(-MAX_EVENTS);
+  }
 }
 
 export interface WrappedStats {
@@ -45,7 +43,7 @@ export interface WrappedStats {
 }
 
 export async function computeWrapped(): Promise<WrappedStats> {
-  const events = await readSignalEvents();
+  const events = [...sessionEvents];
   const careerScore: Record<string, number> = {};
   const replayCount: Record<string, number> = {};
   let intro = 0;
@@ -95,5 +93,10 @@ export async function computeWrapped(): Promise<WrappedStats> {
 }
 
 export async function clearSignals() {
-  await AsyncStorage.removeItem(KEY);
+  sessionEvents = [];
+  try {
+    await AsyncStorage.removeItem(LEGACY_SIGNALS_KEY);
+  } catch {
+    /* ignore */
+  }
 }

@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState, type ReactNode } from "react";
 import {
@@ -19,8 +20,8 @@ const LANGS = ["English", "Español", "Français"] as const;
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
   const [captions, setCaptions] = useState(true);
-  const [sessionOnly, setSessionOnly] = useState(false);
   const [langIdx, setLangIdx] = useState(0);
 
   return (
@@ -71,20 +72,21 @@ export default function SettingsScreen() {
       </Group>
 
       <Group title="Privacy">
-        <Row label="Session-only mode" desc="Don't persist watch history for this demo build.">
-          <Switch
-            value={sessionOnly}
-            onValueChange={(v) => {
-              selectionHaptic();
-              setSessionOnly(v);
-            }}
-          />
-        </Row>
+        <View style={styles.infoRow}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowLabel}>Session-only analytics</Text>
+            <Text style={styles.rowDesc}>
+              Feed engagement for career fit is kept in memory and resets when you fully quit the app.
+            </Text>
+          </View>
+        </View>
         <Pressable
           style={styles.clearBtn}
           onPressIn={() => tapHaptic()}
           onPress={() => {
-            void clearSignals();
+            void clearSignals().then(() => {
+              void queryClient.invalidateQueries({ queryKey: ["careerFit"] });
+            });
           }}
         >
           <Feather name="trash-2" size={16} color="#f87171" />
@@ -159,6 +161,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#334155",
+    backgroundColor: "#0f172a",
+  },
+  infoRow: {
     padding: 16,
     borderRadius: 14,
     borderWidth: 1,
