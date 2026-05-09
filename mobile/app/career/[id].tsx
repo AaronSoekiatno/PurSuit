@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AskAiModal } from "../../components/AskAiModal";
 import { careers } from "../../lib/fixtures";
+import { tapHaptic } from "../../lib/haptics";
 import { slugify } from "../../lib/slug";
 
 export default function CareerDetailScreen() {
@@ -35,11 +36,15 @@ export default function CareerDetailScreen() {
         ]}
       >
         <Text style={styles.miss}>Career not found.</Text>
-        <Pressable style={styles.cta} onPress={() => router.push("/search")}>
+        <Pressable
+          style={styles.cta}
+          onPressIn={() => tapHaptic()}
+          onPress={() => router.push("/search")}
+        >
           <Text style={styles.ctaText}>Browse careers</Text>
         </Pressable>
         <Link href="/" asChild>
-          <Pressable style={styles.link}>
+          <Pressable style={styles.link} onPressIn={() => tapHaptic()}>
             <Text style={styles.linkText}>Back home</Text>
           </Pressable>
         </Link>
@@ -55,11 +60,16 @@ export default function CareerDetailScreen() {
       contentContainerStyle={{ paddingBottom: insets.bottom + 28 }}
     >
       <View style={[styles.toolbar, { paddingTop: insets.top + 8 }]}>
-        <Pressable hitSlop={14} onPress={() => router.back()}>
+        <Pressable
+          hitSlop={14}
+          onPressIn={() => tapHaptic()}
+          onPress={() => router.back()}
+        >
           <Feather name="arrow-left" size={22} color="#fff" />
         </Pressable>
         <Pressable
           hitSlop={14}
+          onPressIn={() => tapHaptic()}
           onPress={() => setSaved((v) => !v)}
           accessibilityLabel="Bookmark"
           style={styles.bookmarkBtn}
@@ -82,7 +92,11 @@ export default function CareerDetailScreen() {
 
       <Text style={styles.overview}>{c.overview}</Text>
 
-      <Pressable style={styles.aiBtn} onPress={() => setAskOpen(true)}>
+      <Pressable
+        style={styles.aiBtn}
+        onPressIn={() => tapHaptic()}
+        onPress={() => setAskOpen(true)}
+      >
         <Feather name="zap" size={16} color="#fff" />
         <Text style={styles.aiText}>Ask AI about this</Text>
       </Pressable>

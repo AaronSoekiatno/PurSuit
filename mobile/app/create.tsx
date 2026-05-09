@@ -4,6 +4,8 @@ import { Link } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { tapHaptic } from "../lib/haptics";
+
 export default function CreateScreen() {
   const insets = useSafeAreaInsets();
 
@@ -11,7 +13,7 @@ export default function CreateScreen() {
     <View style={[styles.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 }]}>
       <View style={styles.top}>
         <Link href="/" asChild>
-          <Pressable hitSlop={12}>
+          <Pressable hitSlop={12} onPressIn={() => tapHaptic()}>
             <Feather name="arrow-left" size={22} color="#fff" />
           </Pressable>
         </Link>

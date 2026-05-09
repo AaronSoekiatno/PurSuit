@@ -30,6 +30,11 @@ import { AskAiModal } from "../components/AskAiModal";
 import { fetchFeed } from "../lib/feed";
 import type { FeedPost } from "../lib/fixtures";
 import { resolveCareerIdFromTag } from "../lib/fixtures";
+import {
+  selectionHaptic,
+  successHaptic,
+  tapHaptic,
+} from "../lib/haptics";
 import { trackEvent } from "../lib/sessionSignals";
 
 const WIN_H = Dimensions.get("window").height;
@@ -100,7 +105,10 @@ function ClipSeekBar({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: (_e, g) =>
           Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4,
-        onPanResponderGrant: (e) => seekFromX(e.nativeEvent.locationX),
+        onPanResponderGrant: (e) => {
+          tapHaptic();
+          seekFromX(e.nativeEvent.locationX);
+        },
         onPanResponderMove: (e) => seekFromX(e.nativeEvent.locationX),
         onPanResponderRelease: () => setScrubFraction(null),
         onPanResponderTerminate: () => setScrubFraction(null),
@@ -149,15 +157,24 @@ function formatCount(n: number): string {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
+  const queryClient = useQueryClient();
+  const feedListRef = useRef<FlatList<FeedPost>>(null);
   const [tab, setTab] = useState<"foryou" | "following">("foryou");
   const [askOpen, setAskOpen] = useState(false);
   const [askCareer, setAskCareer] = useState("Data Analyst");
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  const { data: posts, isLoading } = useQuery({
+  const { data: posts, isLoading, isFetching } = useQuery({
     queryKey: ["feed"],
     queryFn: fetchFeed,
   });
+
+  const refreshFeedFromHomeTab = useCallback(() => {
+    tapHaptic();
+    setTab("foryou");
+    feedListRef.current?.scrollToOffset({ offset: 0, animated: true });
+    void queryClient.invalidateQueries({ queryKey: ["feed"] });
+  }, [queryClient]);
 
   const items = posts ?? [];
 
@@ -178,14 +195,6 @@ export default function HomeScreen() {
     [],
   );
 
-  if (isLoading) {
-    return (
-      <View style={[styles.center, { paddingTop: insets.top }]}>
-        <ActivityIndicator color="#fff" size="large" />
-      </View>
-    );
-  }
-
   const listData = tab === "following" ? [] : items;
 
   return (
@@ -195,12 +204,19 @@ export default function HomeScreen() {
         pointerEvents="box-none"
       >
         <View style={styles.headerTabs}>
-          <Pressable onPress={() => setTab("following")}>
+          <Pressable
+            onPressIn={() => selectionHaptic()}
+            onPress={() => setTab("following")}
+          >
             <Text style={[styles.tabText, tab === "following" && styles.tabOn]}>
               Following
             </Text>
           </Pressable>
-          <Pressable onPress={() => setTab("foryou")} style={styles.tabForyou}>
+          <Pressable
+            onPressIn={() => selectionHaptic()}
+            onPress={() => setTab("foryou")}
+            style={styles.tabForyou}
+          >
             <Text style={[styles.tabText, tab === "foryou" && styles.tabOn]}>
               For You
             </Text>
@@ -209,73 +225,96 @@ export default function HomeScreen() {
         </View>
         <View style={styles.headerIcons}>
           <Link href="/search" asChild>
-            <Pressable hitSlop={12}>
+            <Pressable hitSlop={12} onPressIn={() => tapHaptic()}>
               <Feather name="search" size={24} color="#fff" />
             </Pressable>
           </Link>
           <Link href="/settings" asChild>
-            <Pressable hitSlop={12}>
+            <Pressable hitSlop={12} onPressIn={() => tapHaptic()}>
               <Feather name="more-horizontal" size={24} color="#fff" />
             </Pressable>
           </Link>
         </View>
       </View>
 
-      <FlatList
-        data={listData}
-        keyExtractor={(item) => item.id}
-        pagingEnabled
-        nestedScrollEnabled
-        showsVerticalScrollIndicator={false}
-        decelerationRate="fast"
-        snapToAlignment="start"
-        viewabilityConfig={viewabilityConfig}
-        onViewableItemsChanged={onViewableItemsChanged}
-        renderItem={({ item }) => (
-          <FeedCard
-            post={item}
-            isActive={isFocused && activeId === item.id}
-            onAskAi={() => {
-              setAskCareer(item.career_tag);
-              setAskOpen(true);
-              void trackEvent({ type: "ask_ai", career: item.career_tag });
-            }}
-          />
-        )}
-        ListEmptyComponent={
-          tab === "following" ? (
-            <View style={[styles.emptyPage, { height: WIN_H }]}>
-              <Feather name="users" size={48} color="#64748b" />
-              <Text style={styles.emptyTitle}>No followed creators yet</Text>
-              <Text style={styles.emptySub}>
-                Tap the + on a creator avatar in For You, or explore careers in Search.
-              </Text>
-              <Pressable style={styles.cta} onPress={() => setTab("foryou")}>
-                <Text style={styles.ctaText}>Explore For You</Text>
-              </Pressable>
-              <Link href="/search" asChild>
-                <Pressable style={[styles.cta, styles.ctaSecondary]}>
-                  <Text style={styles.ctaSecondaryText}>Browse careers</Text>
+      {isLoading ? (
+        <View style={[styles.center, { paddingTop: insets.top }]}>
+          <ActivityIndicator color="#fff" size="large" />
+        </View>
+      ) : (
+        <FlatList
+          ref={feedListRef}
+          data={listData}
+          keyExtractor={(item) => item.id}
+          pagingEnabled
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          decelerationRate="fast"
+          snapToAlignment="start"
+          viewabilityConfig={viewabilityConfig}
+          onViewableItemsChanged={onViewableItemsChanged}
+          renderItem={({ item }) => (
+            <FeedCard
+              post={item}
+              isActive={isFocused && activeId === item.id}
+              onAskAi={() => {
+                setAskCareer(item.career_tag);
+                setAskOpen(true);
+                void trackEvent({ type: "ask_ai", career: item.career_tag });
+              }}
+            />
+          )}
+          ListEmptyComponent={
+            tab === "following" ? (
+              <View style={[styles.emptyPage, { height: WIN_H }]}>
+                <Feather name="users" size={48} color="#64748b" />
+                <Text style={styles.emptyTitle}>No followed creators yet</Text>
+                <Text style={styles.emptySub}>
+                  Tap the + on a creator avatar in For You, or explore careers in Search.
+                </Text>
+                <Pressable
+                  style={styles.cta}
+                  onPressIn={() => tapHaptic()}
+                  onPress={() => setTab("foryou")}
+                >
+                  <Text style={styles.ctaText}>Explore For You</Text>
                 </Pressable>
-              </Link>
-            </View>
-          ) : (
-            <View style={[styles.emptyPage, { height: WIN_H }]}>
-              <Text style={styles.emptyTitle}>No videos yet</Text>
-              <Text style={styles.emptySub}>
-                Publish rows to feed_posts in Supabase to populate the feed.
-              </Text>
-            </View>
-          )
-        }
-        getItemLayout={(_, index) => ({
-          length: WIN_H,
-          offset: WIN_H * index,
-          index,
-        })}
-      />
+                <Link href="/search" asChild>
+                  <Pressable
+                    style={[styles.cta, styles.ctaSecondary]}
+                    onPressIn={() => tapHaptic()}
+                  >
+                    <Text style={styles.ctaSecondaryText}>Browse careers</Text>
+                  </Pressable>
+                </Link>
+              </View>
+            ) : (
+              <View style={[styles.emptyPage, { height: WIN_H }]}>
+                <Text style={styles.emptyTitle}>No videos yet</Text>
+                <Text style={styles.emptySub}>
+                  Publish rows to feed_posts in Supabase to populate the feed.
+                </Text>
+              </View>
+            )
+          }
+          getItemLayout={(_, index) => ({
+            length: WIN_H,
+            offset: WIN_H * index,
+            index,
+          })}
+        />
+      )}
 
-      <BottomBar bottomInset={insets.bottom} />
+      {!isLoading && isFetching && items.length > 0 ? (
+        <View style={styles.feedRefetchOverlay} pointerEvents="none">
+          <ActivityIndicator color="#fff" size="large" />
+        </View>
+      ) : null}
+
+      <BottomBar
+        bottomInset={insets.bottom}
+        onHomePressWhenActive={refreshFeedFromHomeTab}
+      />
 
       <AskAiModal
         visible={askOpen}
@@ -396,6 +435,7 @@ function FeedClipVideo({
     tapTimerRef.current = setTimeout(() => {
       tapTimerRef.current = null;
       lastTapRef.current = 0;
+      tapHaptic();
       setPausedByUser((p) => !p);
     }, DOUBLE_TAP_MS);
   }, [onDoubleTapLike]);
@@ -534,6 +574,29 @@ function FeedCard({
 
   const clipSeekRef = useRef<((fraction: number) => void) | null>(null);
 
+  const showVideo =
+    post.post_type === "video" && Boolean(post.media_video_url?.trim());
+  const showSlideshow =
+    post.post_type === "slideshow" && post.slideshow_slides.length > 0;
+
+  /** Once the clip has played without buffering, hide loading overlay until next post. */
+  const [videoReadyLatch, setVideoReadyLatch] = useState(false);
+
+  useEffect(() => {
+    setVideoReadyLatch(false);
+  }, [post.id]);
+
+  useEffect(() => {
+    if (showVideo && isActive && clipPlayback.playing && !clipPlayback.buffering) {
+      setVideoReadyLatch(true);
+    }
+  }, [showVideo, isActive, clipPlayback.playing, clipPlayback.buffering]);
+
+  const showVideoLoadingOverlay =
+    showVideo &&
+    isActive &&
+    (!videoReadyLatch || clipPlayback.buffering);
+
   const onClipPlaybackUpdate = useCallback((info: ClipPlaybackInfo) => {
     setClipPlayback(info);
   }, []);
@@ -543,6 +606,7 @@ function FeedCard({
   }, []);
 
   const onDoubleTapLike = useCallback(() => {
+    successHaptic();
     setLiked((wasLiked) => {
       if (!wasLiked) {
         void trackEvent({
@@ -576,12 +640,6 @@ function FeedCard({
   const initial = post.handle.replace("@", "")[0]?.toUpperCase() ?? "P";
   const careerPath = resolveCareerIdFromTag(post.career_tag);
 
-  const showVideo =
-    post.post_type === "video" &&
-    Boolean(post.media_video_url?.trim());
-  const showSlideshow =
-    post.post_type === "slideshow" && post.slideshow_slides.length > 0;
-
   return (
     <View style={{ height: WIN_H, width: "100%" }}>
       <LinearGradient
@@ -604,6 +662,13 @@ function FeedCard({
           onDoubleTapLike={onDoubleTapLike}
         />
       ) : null}
+
+      {showVideoLoadingOverlay ? (
+        <View style={styles.feedLoadingOverlay} pointerEvents="none">
+          <ActivityIndicator color="#fff" size="large" />
+        </View>
+      ) : null}
+
       <View style={styles.rail}>
         <View style={styles.avatarWrap}>
           <LinearGradient
@@ -671,6 +736,7 @@ function FeedCard({
         />
 
         <Pressable
+          onPressIn={() => tapHaptic()}
           onPress={onAskAi}
           style={styles.aiCircle}
           accessibilityLabel="Ask AI"
@@ -681,6 +747,7 @@ function FeedCard({
 
       <View style={[styles.meta, { paddingBottom: 110 }]}>
         <Pressable
+          onPressIn={() => tapHaptic()}
           onPress={() => router.push(`/career/${careerPath}`)}
           style={styles.careerPill}
         >
@@ -715,30 +782,42 @@ function RailBtn({
   onPress?: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={styles.railBtn}>
+    <Pressable
+      onPressIn={() => tapHaptic()}
+      onPress={onPress}
+      style={styles.railBtn}
+    >
       {icon}
       <Text style={styles.railLabel}>{label}</Text>
     </Pressable>
   );
 }
 
-function BottomBar({ bottomInset }: { bottomInset: number }) {
+function BottomBar({
+  bottomInset,
+  onHomePressWhenActive,
+}: {
+  bottomInset: number;
+  onHomePressWhenActive?: () => void;
+}) {
   const padBottom = Math.max(bottomInset, 12);
   return (
     <View style={[styles.bottomBar, { paddingBottom: padBottom }]}>
-      <Link href="/" asChild>
-        <Pressable style={styles.bottomItem}>
-          <Feather name="home" size={24} color="#fff" />
-          <Text style={styles.bottomLabelOn}>Home</Text>
-        </Pressable>
-      </Link>
+      <Pressable
+        style={styles.bottomItem}
+        onPressIn={() => tapHaptic()}
+        onPress={() => onHomePressWhenActive?.()}
+      >
+        <Feather name="home" size={24} color="#fff" />
+        <Text style={styles.bottomLabelOn}>Home</Text>
+      </Pressable>
       <Link href="/create" asChild>
-        <Pressable style={styles.createBtn}>
+        <Pressable style={styles.createBtn} onPressIn={() => tapHaptic()}>
           <Feather name="plus" size={22} color="#000" />
         </Pressable>
       </Link>
       <Link href="/profile" asChild>
-        <Pressable style={styles.bottomItem}>
+        <Pressable style={styles.bottomItem} onPressIn={() => tapHaptic()}>
           <Feather name="user" size={24} color="rgba(255,255,255,0.6)" />
           <Text style={styles.bottomLabel}>Profile</Text>
         </Pressable>
@@ -901,6 +980,24 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
     elevation: 6,
+  },
+
+  /** Full-screen dim + spinner while feed refetches (keeps prior items visible). */
+  feedRefetchOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.28)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 40,
+  },
+
+  /** Until the active clip is playing, dim the card and show a loader. */
+  feedLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 14,
   },
 
   /** Extra vertical padding for scrubbing without overlapping the tab bar. */

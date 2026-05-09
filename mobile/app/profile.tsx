@@ -7,6 +7,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { careers } from "../lib/fixtures";
+import { selectionHaptic, tapHaptic } from "../lib/haptics";
 import { getCareerFitFromSignals } from "../lib/traitFit";
 
 const TABS = ["Saved Careers", "Saved Videos", "Recaps"] as const;
@@ -39,7 +40,7 @@ export default function ProfileScreen() {
           </View>
         </View>
         <Link href="/settings" asChild>
-          <Pressable hitSlop={12}>
+          <Pressable hitSlop={12} onPressIn={() => tapHaptic()}>
             <Feather name="settings" size={22} color="#94a3b8" />
           </Pressable>
         </Link>
@@ -51,7 +52,11 @@ export default function ProfileScreen() {
         <Stat label="Recaps" value="3" />
       </View>
 
-      <Pressable style={styles.wrappedBanner} onPress={() => router.push("/wrapped")}>
+      <Pressable
+        style={styles.wrappedBanner}
+        onPressIn={() => tapHaptic()}
+        onPress={() => router.push("/wrapped")}
+      >
         <View>
           <Text style={styles.bannerTitle}>Your Session Wrapped</Text>
           <Text style={styles.bannerSub}>See what you've been exploring</Text>
@@ -85,6 +90,7 @@ export default function ProfileScreen() {
         {TABS.map((t) => (
           <Pressable
             key={t}
+            onPressIn={() => selectionHaptic()}
             onPress={() => setTab(t)}
             style={[styles.tab, tab === t && styles.tabOn]}
           >
@@ -101,6 +107,7 @@ export default function ProfileScreen() {
             <Pressable
               key={c.id}
               style={styles.card}
+              onPressIn={() => tapHaptic()}
               onPress={() => router.push(`/career/${c.id}`)}
             >
               <Text style={styles.emoji}>{c.emoji}</Text>

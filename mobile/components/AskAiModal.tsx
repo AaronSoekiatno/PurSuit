@@ -6,6 +6,8 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+
+import { tapHaptic } from "../lib/haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Props = {
@@ -21,7 +23,11 @@ export function AskAiModal({ visible, onClose, career }: Props) {
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
+      <Pressable
+        style={styles.backdrop}
+        onPressIn={() => tapHaptic()}
+        onPress={onClose}
+      >
         <Pressable
           style={[
             styles.sheet,
@@ -38,7 +44,11 @@ export function AskAiModal({ visible, onClose, career }: Props) {
           <Text style={styles.body}>
             Wire your model or edge function here. This build only shows the UX shell from the web app.
           </Text>
-          <Pressable onPress={onClose} style={styles.closeBtn}>
+          <Pressable
+            onPressIn={() => tapHaptic()}
+            onPress={onClose}
+            style={styles.closeBtn}
+          >
             <Text style={styles.closeText}>Close</Text>
           </Pressable>
         </Pressable>
