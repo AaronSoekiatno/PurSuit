@@ -10,7 +10,8 @@ export type SignalEvent =
 
 const KEY = "pursuit:signals:v1";
 
-async function readAll(): Promise<SignalEvent[]> {
+/** Read stored engagement events (for trait vector / recommendations). */
+export async function readSignalEvents(): Promise<SignalEvent[]> {
   try {
     const raw = await AsyncStorage.getItem(KEY);
     return raw ? (JSON.parse(raw) as SignalEvent[]) : [];
@@ -30,7 +31,7 @@ async function writeAll(events: SignalEvent[]) {
 export async function trackEvent(
   e: Record<string, unknown> & { type: SignalEvent["type"] },
 ) {
-  const all = await readAll();
+  const all = await readSignalEvents();
   all.push({ ...e, t: Date.now() } as SignalEvent);
   await writeAll(all);
 }
@@ -44,7 +45,7 @@ export interface WrappedStats {
 }
 
 export async function computeWrapped(): Promise<WrappedStats> {
-  const events = await readAll();
+  const events = await readSignalEvents();
   const careerScore: Record<string, number> = {};
   const replayCount: Record<string, number> = {};
   let intro = 0;

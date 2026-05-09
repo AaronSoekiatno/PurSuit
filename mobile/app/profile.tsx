@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, router } from "expo-router";
 import { useState } from "react";
@@ -6,6 +7,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { careers } from "../lib/fixtures";
+import { getCareerFitFromSignals } from "../lib/traitFit";
 
 const TABS = ["Saved Careers", "Saved Videos", "Recaps"] as const;
 
@@ -14,6 +16,12 @@ type ProfileTab = (typeof TABS)[number];
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<ProfileTab>("Saved Careers");
+
+  const { data: fit } = useQuery({
+    queryKey: ["careerFit"],
+    queryFn: getCareerFitFromSignals,
+    staleTime: 15_000,
+  });
 
   return (
     <ScrollView
@@ -52,6 +60,26 @@ export default function ProfileScreen() {
           <Text style={styles.bannerCtaText}>View</Text>
         </LinearGradient>
       </Pressable>
+
+      <View style={styles.fitCard}>
+        <Text style={styles.fitLabel}>Fit signal (from watching & saves)</Text>
+        {fit?.recommendedCareer ? (
+          <>
+            <Text style={styles.fitTitle}>Closest match</Text>
+            <Text style={styles.fitCareer}>{fit.recommendedCareer}</Text>
+            {fit.ranking[0] != null ? (
+              <Text style={styles.fitMeta}>
+                Cosine similarity {(fit.ranking[0].similarity * 100).toFixed(1)}%
+              </Text>
+            ) : null}
+          </>
+        ) : (
+          <Text style={styles.fitEmpty}>
+            Scroll the For You feed to build your trait profile — we compare your engagement
+            to each career&apos;s tags.
+          </Text>
+        )}
+      </View>
 
       <View style={styles.tabs}>
         {TABS.map((t) => (
@@ -158,6 +186,21 @@ const styles = StyleSheet.create({
   bannerSub: { marginTop: 4, fontSize: 11, color: "#94a3b8" },
   bannerCta: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
   bannerCtaText: { fontSize: 12, fontWeight: "700", color: "#fff" },
+  fitCard: {
+    marginTop: 16,
+    marginHorizontal: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#334155",
+    backgroundColor: "#0f172a",
+    padding: 16,
+    gap: 6,
+  },
+  fitLabel: { fontSize: 11, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5 },
+  fitTitle: { fontSize: 12, fontWeight: "600", color: "#cbd5e1", marginTop: 4 },
+  fitCareer: { fontSize: 18, fontWeight: "800", color: "#fff" },
+  fitMeta: { fontSize: 12, color: "#a78bfa", marginTop: 4 },
+  fitEmpty: { fontSize: 13, color: "#94a3b8", lineHeight: 18 },
   tabs: {
     flexDirection: "row",
     marginHorizontal: 20,

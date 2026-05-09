@@ -1,19 +1,29 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { Image } from "expo-image";
+import { useIsFocused } from "@react-navigation/native";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, router } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import { useVideoPlayer, VideoView } from "expo-video";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ComponentRef, MutableRefObject, ReactNode } from "react";
 import {
   ActivityIndicator,
   Dimensions,
   FlatList,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
   View,
   type ViewToken,
 } from "react-native";
+import {
+  FlatList as GHFlatList,
+  Gesture,
+  GestureDetector,
+} from "react-native-gesture-handler";
+import { runOnJS } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AskAiModal } from "../components/AskAiModal";
@@ -23,6 +33,111 @@ import { resolveCareerIdFromTag } from "../lib/fixtures";
 import { trackEvent } from "../lib/sessionSignals";
 
 const WIN_H = Dimensions.get("window").height;
+const WIN_W = Dimensions.get("window").width;
+
+/** Delay before treating a tap as “single” so double-tap can cancel it. */
+const DOUBLE_TAP_MS = 300;
+
+/** Matches `styles.rail`: avatar → … → save → share → AI anchored above tab bar. */
+const RAIL_ANCHOR_BOTTOM = 118;
+const RAIL_AI_H = 48;
+const RAIL_GAP = 28;
+/** Approx height of one `RailBtn` (icon + label + gaps). */
+const RAIL_ACTION_BLOCK_H = 46;
+
+/**
+ * Distance from screen bottom to the bottom edge of the save button block in the rail.
+ */
+const SAVE_RAIL_BTN_BOTTOM =
+  RAIL_ANCHOR_BOTTOM +
+  RAIL_AI_H +
+  RAIL_GAP +
+  RAIL_ACTION_BLOCK_H +
+  RAIL_GAP +
+  RAIL_ACTION_BLOCK_H;
+
+/** Dots under save, nudged toward tab bar; horizontally centered (`slideMarkers`). */
+const SLIDE_MARKERS_BOTTOM = SAVE_RAIL_BTN_BOTTOM - 14 - 28;
+
+type ClipPlaybackInfo = {
+  /** 0–1 along the clip timeline */
+  progress: number;
+  playing: boolean;
+  buffering: boolean;
+};
+
+/** Seek by fraction 0–1; wired from `FeedClipVideo` when the clip is active. */
+function ClipSeekBar({
+  progress,
+  playing,
+  buffering,
+  seek,
+}: {
+  progress: number;
+  playing: boolean;
+  buffering: boolean;
+  seek: (fraction: number) => void;
+}) {
+  const [scrubFraction, setScrubFraction] = useState<number | null>(null);
+  const trackWidthRef = useRef(0);
+
+  const shown = scrubFraction ?? progress;
+
+  const seekFromX = useCallback(
+    (locationX: number) => {
+      const w = trackWidthRef.current;
+      if (!(w > 0)) return;
+      const f = Math.min(1, Math.max(0, locationX / w));
+      seek(f);
+      setScrubFraction(f);
+    },
+    [seek],
+  );
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_e, g) =>
+          Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4,
+        onPanResponderGrant: (e) => seekFromX(e.nativeEvent.locationX),
+        onPanResponderMove: (e) => seekFromX(e.nativeEvent.locationX),
+        onPanResponderRelease: () => setScrubFraction(null),
+        onPanResponderTerminate: () => setScrubFraction(null),
+      }),
+    [seekFromX],
+  );
+
+  return (
+    <View
+      style={[
+        styles.progressScrubWrap,
+        !playing && styles.progressOuterPaused,
+        buffering && styles.progressOuterBuffering,
+      ]}
+      accessibilityRole="adjustable"
+      accessibilityLabel="Video scrubber"
+      {...panResponder.panHandlers}
+    >
+      <View
+        style={styles.progressOuter}
+        pointerEvents="none"
+        onLayout={(e) => {
+          trackWidthRef.current = e.nativeEvent.layout.width;
+        }}
+      >
+        <View
+          style={[
+            styles.progressInner,
+            {
+              width: `${Math.min(100, Math.max(0, shown * 100))}%`,
+            },
+          ]}
+        />
+      </View>
+    </View>
+  );
+}
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
@@ -33,6 +148,7 @@ function formatCount(n: number): string {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const [tab, setTab] = useState<"foryou" | "following">("foryou");
   const [askOpen, setAskOpen] = useState(false);
   const [askCareer, setAskCareer] = useState("Data Analyst");
@@ -52,12 +168,6 @@ export default function HomeScreen() {
       if (post) {
         setActiveId(post.id);
         setAskCareer(post.career_tag);
-        void trackEvent({
-          type: "view",
-          postId: post.id,
-          career: post.career_tag,
-          fraction: 0.8,
-        });
       }
     },
     [],
@@ -115,6 +225,7 @@ export default function HomeScreen() {
         data={listData}
         keyExtractor={(item) => item.id}
         pagingEnabled
+        nestedScrollEnabled
         showsVerticalScrollIndicator={false}
         decelerationRate="fast"
         snapToAlignment="start"
@@ -123,7 +234,7 @@ export default function HomeScreen() {
         renderItem={({ item }) => (
           <FeedCard
             post={item}
-            isActive={activeId === item.id}
+            isActive={isFocused && activeId === item.id}
             onAskAi={() => {
               setAskCareer(item.career_tag);
               setAskOpen(true);
@@ -175,6 +286,230 @@ export default function HomeScreen() {
   );
 }
 
+function FeedClipVideo({
+  uri,
+  isActive,
+  onPlaybackUpdate,
+  onDoubleTapLike,
+  clipSeekRef,
+}: {
+  uri: string;
+  isActive: boolean;
+  onPlaybackUpdate?: (info: ClipPlaybackInfo) => void;
+  onDoubleTapLike: () => void;
+  clipSeekRef: MutableRefObject<((fraction: number) => void) | null>;
+}) {
+  const [pausedByUser, setPausedByUser] = useState(false);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTapRef = useRef(0);
+
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.muted = false;
+    p.timeUpdateEventInterval = 0.1;
+  });
+
+  useEffect(() => {
+    if (!isActive) {
+      clipSeekRef.current = null;
+      return;
+    }
+
+    clipSeekRef.current = (fraction: number) => {
+      const dur = player.duration;
+      if (!(typeof dur === "number" && Number.isFinite(dur) && dur > 0)) return;
+      const t = Math.min(dur, Math.max(0, fraction * dur));
+      player.currentTime = t;
+      onPlaybackUpdate?.({
+        progress: t / dur,
+        playing: player.playing,
+        buffering: player.status === "loading",
+      });
+    };
+
+    return () => {
+      clipSeekRef.current = null;
+    };
+  }, [player, isActive, onPlaybackUpdate, clipSeekRef]);
+
+  useEffect(() => {
+    if (!onPlaybackUpdate || !isActive) return;
+
+    const sync = () => {
+      const dur = player.duration;
+      const cur = player.currentTime;
+      const safeDur =
+        typeof dur === "number" && Number.isFinite(dur) && dur > 0 ? dur : 0;
+      const progress =
+        safeDur > 0 ? Math.min(1, Math.max(0, cur / safeDur)) : 0;
+      onPlaybackUpdate({
+        progress,
+        playing: player.playing,
+        buffering: player.status === "loading",
+      });
+    };
+
+    const subs = [
+      player.addListener("timeUpdate", sync),
+      player.addListener("playingChange", sync),
+      player.addListener("statusChange", sync),
+      player.addListener("sourceLoad", sync),
+    ];
+    sync();
+
+    return () => {
+      for (const s of subs) s.remove();
+    };
+  }, [player, onPlaybackUpdate, isActive]);
+
+  useEffect(() => {
+    if (!isActive) setPausedByUser(false);
+  }, [isActive]);
+
+  useEffect(() => {
+    if (isActive && !pausedByUser) void player.play();
+    else player.pause();
+  }, [isActive, pausedByUser, player]);
+
+  useEffect(
+    () => () => {
+      if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+    },
+    [],
+  );
+
+  const showPausedHint = isActive && pausedByUser;
+
+  const onOverlayPress = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapRef.current < DOUBLE_TAP_MS) {
+      if (tapTimerRef.current) {
+        clearTimeout(tapTimerRef.current);
+        tapTimerRef.current = null;
+      }
+      lastTapRef.current = 0;
+      onDoubleTapLike();
+      return;
+    }
+    lastTapRef.current = now;
+    if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+    tapTimerRef.current = setTimeout(() => {
+      tapTimerRef.current = null;
+      lastTapRef.current = 0;
+      setPausedByUser((p) => !p);
+    }, DOUBLE_TAP_MS);
+  }, [onDoubleTapLike]);
+
+  return (
+    <View style={styles.mediaLayer}>
+      <VideoView
+        style={StyleSheet.absoluteFill}
+        player={player}
+        contentFit="cover"
+        nativeControls={false}
+      />
+      <Pressable
+        style={styles.videoTapOverlay}
+        onPress={onOverlayPress}
+        accessibilityLabel={
+          pausedByUser
+            ? "Play video. Double tap to like."
+            : "Pause video. Double tap to like."
+        }
+      />
+      {showPausedHint ? (
+        <View style={styles.pauseHintWrap} pointerEvents="none">
+          <Ionicons name="play" size={56} color="rgba(255,255,255,0.92)" />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function FeedSlideshow({
+  slides,
+  onDoubleTapLike,
+}: {
+  slides: FeedPost["slideshow_slides"];
+  onDoubleTapLike: () => void;
+}) {
+  type SlideRow = FeedPost["slideshow_slides"][number];
+  const listRef = useRef<ComponentRef<typeof GHFlatList<SlideRow>>>(null);
+  const [index, setIndex] = useState(0);
+
+  const doubleTapGesture = useMemo(
+    () =>
+      Gesture.Tap()
+        .numberOfTaps(2)
+        .onEnd((_e, success) => {
+          if (success) runOnJS(onDoubleTapLike)();
+        }),
+    [onDoubleTapLike],
+  );
+
+  const slideshowGestures = useMemo(
+    () =>
+      Gesture.Simultaneous(Gesture.Native(), doubleTapGesture),
+    [doubleTapGesture],
+  );
+
+  return (
+    <View style={styles.mediaLayer}>
+      <GestureDetector gesture={slideshowGestures}>
+        <GHFlatList<SlideRow>
+          ref={listRef}
+          style={StyleSheet.absoluteFill}
+          data={slides}
+          horizontal
+          pagingEnabled
+          nestedScrollEnabled
+          keyExtractor={(item, i) => `${i}-${item.uri}`}
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(e) => {
+            const x = e.nativeEvent.contentOffset.x;
+            setIndex(
+              Math.min(
+                slides.length - 1,
+                Math.max(0, Math.round(x / WIN_W)),
+              ),
+            );
+          }}
+          getItemLayout={(_, i) => ({
+            length: WIN_W,
+            offset: WIN_W * i,
+            index: i,
+          })}
+          renderItem={({ item }) => (
+            <View style={{ width: WIN_W, height: WIN_H }}>
+              <Image
+                source={{ uri: item.uri }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+                transition={200}
+              />
+            </View>
+          )}
+        />
+      </GestureDetector>
+      {slides.length > 0 ? (
+        <View style={styles.slideMarkers} pointerEvents="none">
+          <View style={styles.slideMarkersRow}>
+            {slides.map((_, i) => (
+              <View
+                key={`dot-${i}-${slides[i]?.uri}`}
+                style={[
+                  styles.slideMarkerDot,
+                  i === index && styles.slideMarkerDotActive,
+                ]}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function FeedCard({
   post,
   isActive,
@@ -184,11 +519,68 @@ function FeedCard({
   isActive: boolean;
   onAskAi: () => void;
 }) {
+  const queryClient = useQueryClient();
+  const bumpCareerFit = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["careerFit"] });
+  }, [queryClient]);
+
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [clipPlayback, setClipPlayback] = useState<ClipPlaybackInfo>({
+    progress: 0,
+    playing: false,
+    buffering: true,
+  });
+
+  const clipSeekRef = useRef<((fraction: number) => void) | null>(null);
+
+  const onClipPlaybackUpdate = useCallback((info: ClipPlaybackInfo) => {
+    setClipPlayback(info);
+  }, []);
+
+  const seekClip = useCallback((fraction: number) => {
+    clipSeekRef.current?.(fraction);
+  }, []);
+
+  const onDoubleTapLike = useCallback(() => {
+    setLiked((wasLiked) => {
+      if (!wasLiked) {
+        void trackEvent({
+          type: "like",
+          postId: post.id,
+          career: post.career_tag,
+        });
+        bumpCareerFit();
+      }
+      return true;
+    });
+  }, [post.id, post.career_tag, bumpCareerFit]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    const start = Date.now();
+    return () => {
+      const sec = (Date.now() - start) / 1000;
+      if (sec < 0.25) return;
+      const fraction = Math.min(1, sec / 42);
+      void trackEvent({
+        type: "view",
+        postId: post.id,
+        career: post.career_tag,
+        fraction,
+      });
+      bumpCareerFit();
+    };
+  }, [isActive, post.id, post.career_tag, bumpCareerFit]);
 
   const initial = post.handle.replace("@", "")[0]?.toUpperCase() ?? "P";
   const careerPath = resolveCareerIdFromTag(post.career_tag);
+
+  const showVideo =
+    post.post_type === "video" &&
+    Boolean(post.media_video_url?.trim());
+  const showSlideshow =
+    post.post_type === "slideshow" && post.slideshow_slides.length > 0;
 
   return (
     <View style={{ height: WIN_H, width: "100%" }}>
@@ -198,6 +590,20 @@ function FeedCard({
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
+      {showVideo && post.media_video_url ? (
+        <FeedClipVideo
+          uri={post.media_video_url}
+          isActive={isActive}
+          onPlaybackUpdate={onClipPlaybackUpdate}
+          onDoubleTapLike={onDoubleTapLike}
+          clipSeekRef={clipSeekRef}
+        />
+      ) : showSlideshow ? (
+        <FeedSlideshow
+          slides={post.slideshow_slides}
+          onDoubleTapLike={onDoubleTapLike}
+        />
+      ) : null}
       <View style={styles.rail}>
         <View style={styles.avatarWrap}>
           <LinearGradient
@@ -223,8 +629,14 @@ function FeedCard({
           onPress={() => {
             const next = !liked;
             setLiked(next);
-            if (next)
-              void trackEvent({ type: "like", postId: post.id, career: post.career_tag });
+            if (next) {
+              void trackEvent({
+                type: "like",
+                postId: post.id,
+                career: post.career_tag,
+              });
+              bumpCareerFit();
+            }
           }}
         />
         <RailBtn
@@ -243,8 +655,14 @@ function FeedCard({
           onPress={() => {
             const next = !saved;
             setSaved(next);
-            if (next)
-              void trackEvent({ type: "save", postId: post.id, career: post.career_tag });
+            if (next) {
+              void trackEvent({
+                type: "save",
+                postId: post.id,
+                career: post.career_tag,
+              });
+              bumpCareerFit();
+            }
           }}
         />
         <RailBtn
@@ -275,10 +693,13 @@ function FeedCard({
         </Text>
       </View>
 
-      {isActive && (
-        <View style={styles.progressOuter}>
-          <View style={styles.progressInner} />
-        </View>
+      {showVideo && isActive && (
+        <ClipSeekBar
+          progress={clipPlayback.progress}
+          playing={clipPlayback.playing}
+          buffering={clipPlayback.buffering}
+          seek={seekClip}
+        />
       )}
     </View>
   );
@@ -363,7 +784,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 12,
     bottom: 118,
-    zIndex: 10,
+    zIndex: 30,
     alignItems: "center",
     gap: 28,
   },
@@ -405,7 +826,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 70,
     bottom: 0,
-    zIndex: 5,
+    zIndex: 25,
     paddingHorizontal: 20,
     paddingTop: 24,
   },
@@ -430,20 +851,84 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.88)",
   },
 
-  progressOuter: {
+  mediaLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
+  },
+  videoTapOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+  },
+  pauseHintWrap: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 3,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.12)",
+  },
+  slideMarkers: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: SLIDE_MARKERS_BOTTOM,
+    zIndex: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  slideMarkersRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    flexWrap: "wrap",
+    maxWidth: "88%",
+  },
+  slideMarkerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.28)",
+  },
+  /** Active slide: same circle shape, brighter / slightly larger (“lit”). */
+  slideMarkerDotActive: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: "#fff",
+    opacity: 1,
+    shadowColor: "#fff",
+    shadowOpacity: 0.55,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 6,
+  },
+
+  /** Extra vertical padding for scrubbing without overlapping the tab bar. */
+  progressScrubWrap: {
     position: "absolute",
     left: 20,
     right: 20,
-    bottom: 88,
-    height: 2,
-    borderRadius: 1,
+    bottom: 76,
+    paddingVertical: 12,
+    justifyContent: "center",
+    zIndex: 35,
+  },
+  progressOuter: {
+    height: 3,
+    borderRadius: 2,
     backgroundColor: "rgba(255,255,255,0.15)",
     overflow: "hidden",
   },
+  progressOuterPaused: {
+    opacity: 0.55,
+  },
+  progressOuterBuffering: {
+    opacity: 0.75,
+  },
   progressInner: {
-    width: "33%",
     height: "100%",
-    backgroundColor: "rgba(255,255,255,0.85)",
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderRadius: 1,
   },
 
   bottomBar: {

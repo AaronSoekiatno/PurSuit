@@ -7,6 +7,8 @@ export interface FeedPost {
   handle: string;
   avatar_url?: string | null;
   career_tag: string;
+  /** Trait weights from `careers.trait_tags` when loaded from Supabase; fixtures use placeholders. */
+  career_trait_tags: Record<string, number>;
   caption: string;
   likes: number;
   comments: number;
@@ -14,14 +16,40 @@ export interface FeedPost {
   shares: number;
   /** Native gradient stops (top-left-ish → mid → bottom). */
   gradientColors: readonly [string, string, string];
-  video_url?: string | null;
+  post_type: "video" | "slideshow";
+  /** Resolved playable URL (HTTPS / signed). */
+  media_video_url: string | null;
+  media_poster_url?: string | null;
+  slideshow_slides: { uri: string; caption?: string; duration_ms?: number }[];
 }
+
+const fixtureTraits = {
+  analytical: 0.75,
+  adaptability: 0.7,
+  emotional_intelligence: 0.55,
+  ai: 0.65,
+  curiosity: 0.8,
+  creativity: 0.72,
+  social: 0.6,
+} as const satisfies Record<string, number>;
+
+/** Short sample clip so offline / fixture feed still plays video. */
+export const FIXTURE_SAMPLE_MP4 =
+  "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
+
+const fixtureMedia = {
+  post_type: "video" as const,
+  media_video_url: FIXTURE_SAMPLE_MP4,
+  media_poster_url: null as string | null,
+  slideshow_slides: [] as FeedPost["slideshow_slides"],
+};
 
 export const feedFixtures: FeedPost[] = [
   {
     id: "1",
     handle: "@careercoach",
     career_tag: "Data Analyst",
+    career_trait_tags: { ...fixtureTraits },
     caption:
       "A realistic day in the life of a remote data analyst — meetings, SQL, and dashboards.",
     likes: 142_000,
@@ -29,50 +57,74 @@ export const feedFixtures: FeedPost[] = [
     saves: 12_000,
     shares: 842,
     gradientColors: ["#1a1340", "#0a0a0a", "#1a0530"],
+    ...fixtureMedia,
   },
   {
     id: "2",
     handle: "@buildwithme",
     career_tag: "Product Designer",
+    career_trait_tags: { ...fixtureTraits, creativity: 0.88, social: 0.72 },
     caption: "From wireframe to ship in one week. Tools I actually use day to day.",
     likes: 88_400,
     comments: 612,
     saves: 7_300,
     shares: 411,
     gradientColors: ["#002233", "#060606", "#00141f"],
+    ...fixtureMedia,
   },
   {
     id: "3",
     handle: "@codingnomad",
     career_tag: "Software Engineer",
+    career_trait_tags: {
+      ...fixtureTraits,
+      analytical: 0.88,
+      ai: 0.92,
+      curiosity: 0.86,
+    },
     caption: "Junior → Senior in 3 years: the unglamorous version.",
     likes: 220_900,
     comments: 2890,
     saves: 31_200,
     shares: 1_205,
     gradientColors: ["#20003a", "#050505", "#0b0030"],
+    ...fixtureMedia,
   },
   {
     id: "4",
     handle: "@nursediaries",
     career_tag: "Registered Nurse",
+    career_trait_tags: {
+      ...fixtureTraits,
+      emotional_intelligence: 0.9,
+      social: 0.85,
+      pressure: 0.8,
+    },
     caption: "12-hour shift, ICU. What nobody tells you in school.",
     likes: 305_000,
     comments: 4112,
     saves: 19_800,
     shares: 2_440,
     gradientColors: ["#2a0010", "#050505", "#1a0010"],
+    ...fixtureMedia,
   },
   {
     id: "5",
     handle: "@onthebench",
     career_tag: "Mechanical Engineer",
+    career_trait_tags: {
+      ...fixtureTraits,
+      analytical: 0.82,
+      creativity: 0.78,
+      curiosity: 0.75,
+    },
     caption: "Inside a bike R&D lab. Real prototypes, real failures.",
     likes: 67_800,
     comments: 502,
     saves: 5_900,
     shares: 280,
     gradientColors: ["#002a1a", "#050505", "#001a14"],
+    ...fixtureMedia,
   },
 ];
 
