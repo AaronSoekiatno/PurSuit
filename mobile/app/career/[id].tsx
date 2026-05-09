@@ -10,15 +10,16 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AskAiModal } from "../../components/AskAiModal";
+import { useAskAi } from "../../contexts/AskAiChatContext";
 import { careers } from "../../lib/fixtures";
+import { APP_TAB_BAR_HEIGHT } from "../../lib/layout";
 import { slugify } from "../../lib/slug";
 
 export default function CareerDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const insets = useSafeAreaInsets();
+  const { visible: askVisible, openFromCareer } = useAskAi();
   const [saved, setSaved] = useState(false);
-  const [askOpen, setAskOpen] = useState(false);
 
   const career = useMemo(() => {
     const raw = typeof id === "string" ? id : Array.isArray(id) ? id[0] : "";
@@ -31,7 +32,7 @@ export default function CareerDetailScreen() {
       <View
         style={[
           styles.missRoot,
-          { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 },
+          { paddingTop: insets.top + 8, paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 24 },
         ]}
       >
         <Text style={styles.miss}>Career not found.</Text>
@@ -52,7 +53,8 @@ export default function CareerDetailScreen() {
   return (
     <ScrollView
       style={styles.root}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 28 }}
+      scrollEnabled={!askVisible}
+      contentContainerStyle={{ paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 28 }}
     >
       <View style={[styles.toolbar, { paddingTop: insets.top + 8 }]}>
         <Pressable hitSlop={14} onPress={() => router.back()}>
@@ -82,7 +84,7 @@ export default function CareerDetailScreen() {
 
       <Text style={styles.overview}>{c.overview}</Text>
 
-      <Pressable style={styles.aiBtn} onPress={() => setAskOpen(true)}>
+      <Pressable style={styles.aiBtn} onPress={() => openFromCareer(c)}>
         <Feather name="zap" size={16} color="#fff" />
         <Text style={styles.aiText}>Ask AI about this</Text>
       </Pressable>
@@ -130,7 +132,6 @@ export default function CareerDetailScreen() {
         ))}
       </Section>
 
-      <AskAiModal visible={askOpen} onClose={() => setAskOpen(false)} career={c.title} />
     </ScrollView>
   );
 }

@@ -8,9 +8,12 @@
     "mobile:android": "npm run android --prefix mobile",
     "mobile:ios": "npm run ios --prefix mobile",
     "mobile:typecheck": "npm run typecheck --prefix mobile",
-    "format": "prettier --write \"mobile/**/*.{ts,tsx}\""
+    "format": "prettier --write \"mobile/**/*.{ts,tsx}\"",
+    "supabase": "supabase",
+    "deploy:pursuit-chat": "supabase functions deploy pursuit-chat"
   },
   "devDependencies": {
-    "prettier": "^3.7.3"
+    "prettier": "^3.7.3",
+    "supabase": "^2.98.2"
   }
 }

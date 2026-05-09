@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
 import { clearSignals } from "../lib/sessionSignals";
 
 const LANGS = ["English", "Español", "Français"] as const;
@@ -24,7 +25,7 @@ export default function SettingsScreen() {
   return (
     <ScrollView
       style={styles.root}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+      contentContainerStyle={{ paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 32 }}
     >
       <View style={[styles.head, { paddingTop: insets.top + 8 }]}>
         <Link href="/" asChild>

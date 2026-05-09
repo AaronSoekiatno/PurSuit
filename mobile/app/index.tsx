@@ -2,7 +2,7 @@ import { Feather, Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, router } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ActivityIndicator,
@@ -16,13 +16,18 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AskAiModal } from "../components/AskAiModal";
+import { useAskAi } from "../contexts/AskAiChatContext";
 import { fetchFeed } from "../lib/feed";
 import type { FeedPost } from "../lib/fixtures";
 import { resolveCareerIdFromTag } from "../lib/fixtures";
+import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
+import { recordFeedImpression } from "../lib/recentFeedBuffer";
 import { trackEvent } from "../lib/sessionSignals";
 
 const WIN_H = Dimensions.get("window").height;
+
+/** TikTok-style double-tap window (ms). */
+const DOUBLE_TAP_MS = 280;
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
@@ -33,9 +38,8 @@ function formatCount(n: number): string {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const { visible: askVisible, openFromFeed } = useAskAi();
   const [tab, setTab] = useState<"foryou" | "following">("foryou");
-  const [askOpen, setAskOpen] = useState(false);
-  const [askCareer, setAskCareer] = useState("Data Analyst");
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const { data: posts, isLoading } = useQuery({
@@ -51,7 +55,7 @@ export default function HomeScreen() {
       const post = v?.item as FeedPost | undefined;
       if (post) {
         setActiveId(post.id);
-        setAskCareer(post.career_tag);
+        recordFeedImpression(post);
         void trackEvent({
           type: "view",
           postId: post.id,
@@ -113,6 +117,7 @@ export default function HomeScreen() {
 
       <FlatList
         data={listData}
+        scrollEnabled={!askVisible}
         keyExtractor={(item) => item.id}
         pagingEnabled
         showsVerticalScrollIndicator={false}
@@ -125,8 +130,7 @@ export default function HomeScreen() {
             post={item}
             isActive={activeId === item.id}
             onAskAi={() => {
-              setAskCareer(item.career_tag);
-              setAskOpen(true);
+              openFromFeed(item);
               void trackEvent({ type: "ask_ai", career: item.career_tag });
             }}
           />
@@ -164,13 +168,6 @@ export default function HomeScreen() {
         })}
       />
 
-      <BottomBar bottomInset={insets.bottom} />
-
-      <AskAiModal
-        visible={askOpen}
-        onClose={() => setAskOpen(false)}
-        career={askCareer}
-      />
     </View>
   );
 }
@@ -186,6 +183,34 @@ function FeedCard({
 }) {
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
+  const lastTapMs = useRef(0);
+
+  const toggleLike = useCallback(() => {
+    setLiked((prev) => {
+      const next = !prev;
+      if (next)
+        void trackEvent({ type: "like", postId: post.id, career: post.career_tag });
+      return next;
+    });
+  }, [post.career_tag, post.id]);
+
+  const likeFromDoubleTap = useCallback(() => {
+    setLiked((was) => {
+      if (was) return was;
+      void trackEvent({ type: "like", postId: post.id, career: post.career_tag });
+      return true;
+    });
+  }, [post.career_tag, post.id]);
+
+  const onVideoAreaPress = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapMs.current < DOUBLE_TAP_MS) {
+      lastTapMs.current = 0;
+      likeFromDoubleTap();
+    } else {
+      lastTapMs.current = now;
+    }
+  }, [likeFromDoubleTap]);
 
   const initial = post.handle.replace("@", "")[0]?.toUpperCase() ?? "P";
   const careerPath = resolveCareerIdFromTag(post.career_tag);
@@ -197,6 +222,11 @@ function FeedCard({
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
+      />
+      <Pressable
+        style={styles.doubleTapLayer}
+        onPress={onVideoAreaPress}
+        accessibilityLabel="Double-tap to like"
       />
       <View style={styles.rail}>
         <View style={styles.avatarWrap}>
@@ -220,12 +250,7 @@ function FeedCard({
             />
           }
           label={formatCount(post.likes + (liked ? 1 : 0))}
-          onPress={() => {
-            const next = !liked;
-            setLiked(next);
-            if (next)
-              void trackEvent({ type: "like", postId: post.id, career: post.career_tag });
-          }}
+          onPress={toggleLike}
         />
         <RailBtn
           icon={<Feather name="message-circle" size={28} color="#fff" />}
@@ -261,7 +286,7 @@ function FeedCard({
         </Pressable>
       </View>
 
-      <View style={[styles.meta, { paddingBottom: 110 }]}>
+      <View style={[styles.meta, { paddingBottom: APP_TAB_BAR_HEIGHT + 34 }]}>
         <Pressable
           onPress={() => router.push(`/career/${careerPath}`)}
           style={styles.careerPill}
@@ -301,31 +326,6 @@ function RailBtn({
   );
 }
 
-function BottomBar({ bottomInset }: { bottomInset: number }) {
-  const padBottom = Math.max(bottomInset, 12);
-  return (
-    <View style={[styles.bottomBar, { paddingBottom: padBottom }]}>
-      <Link href="/" asChild>
-        <Pressable style={styles.bottomItem}>
-          <Feather name="home" size={24} color="#fff" />
-          <Text style={styles.bottomLabelOn}>Home</Text>
-        </Pressable>
-      </Link>
-      <Link href="/create" asChild>
-        <Pressable style={styles.createBtn}>
-          <Feather name="plus" size={22} color="#000" />
-        </Pressable>
-      </Link>
-      <Link href="/profile" asChild>
-        <Pressable style={styles.bottomItem}>
-          <Feather name="user" size={24} color="rgba(255,255,255,0.6)" />
-          <Text style={styles.bottomLabel}>Profile</Text>
-        </Pressable>
-      </Link>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
   center: {
@@ -358,11 +358,17 @@ const styles = StyleSheet.create({
   },
   headerIcons: { flexDirection: "row", alignItems: "center", gap: 14 },
 
+  /** Below meta / rail so career pill and actions stay tappable. */
+  doubleTapLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+  },
+
   /** Sit above tab bar; tuned so AI button lines up with caption text. */
   rail: {
     position: "absolute",
     right: 12,
-    bottom: 118,
+    bottom: APP_TAB_BAR_HEIGHT + 42,
     zIndex: 10,
     alignItems: "center",
     gap: 28,
@@ -434,7 +440,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 20,
     right: 20,
-    bottom: 88,
+    bottom: APP_TAB_BAR_HEIGHT + 12,
     height: 2,
     borderRadius: 1,
     backgroundColor: "rgba(255,255,255,0.15)",
@@ -444,34 +450,6 @@ const styles = StyleSheet.create({
     width: "33%",
     height: "100%",
     backgroundColor: "rgba(255,255,255,0.85)",
-  },
-
-  bottomBar: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 76,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-around",
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(255,255,255,0.1)",
-    backgroundColor: "rgba(0,0,0,0.95)",
-    zIndex: 20,
-  },
-  bottomItem: { flex: 1, alignItems: "center", gap: 4 },
-  bottomLabel: { fontSize: 11, fontWeight: "600", color: "rgba(255,255,255,0.6)" },
-  bottomLabelOn: { fontSize: 11, fontWeight: "700", color: "#fff" },
-  createBtn: {
-    width: 56,
-    height: 36,
-    borderRadius: 6,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
   },
 
   emptyPage: {

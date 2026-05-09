@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AskAiModal } from "../components/AskAiModal";
+import { useAskAi } from "../contexts/AskAiChatContext";
+import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
 import {
   computeWrapped,
   type WrappedStats,
@@ -13,8 +14,8 @@ import {
 
 export default function WrappedScreen() {
   const insets = useSafeAreaInsets();
+  const { visible: askVisible, openFromWrapped } = useAskAi();
   const [stats, setStats] = useState<WrappedStats | null>(null);
-  const [askOpen, setAskOpen] = useState(false);
 
   useEffect(() => {
     void computeWrapped().then(setStats);
@@ -25,7 +26,8 @@ export default function WrappedScreen() {
   return (
     <ScrollView
       style={styles.root}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+      scrollEnabled={!askVisible}
+      contentContainerStyle={{ paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 32 }}
     >
       <View style={[styles.head, { paddingTop: insets.top + 8 }]}>
         <Link href="/profile" asChild>
@@ -86,7 +88,10 @@ export default function WrappedScreen() {
         </View>
       </View>
 
-      <Pressable style={styles.aiBtn} onPress={() => setAskOpen(true)}>
+      <Pressable
+        style={styles.aiBtn}
+        onPress={() => stats && openFromWrapped(stats)}
+      >
         <Feather name="message-circle" size={18} color="#fff" />
         <Text style={styles.aiBtnText}>Ask AI to explain this</Text>
       </Pressable>
@@ -102,7 +107,6 @@ export default function WrappedScreen() {
         </Pressable>
       </View>
 
-      <AskAiModal visible={askOpen} onClose={() => setAskOpen(false)} career={top} />
     </ScrollView>
   );
 }
