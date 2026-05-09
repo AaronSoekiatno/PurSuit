@@ -163,6 +163,7 @@ function formatCount(n: number): string {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
+  const queryClient = useQueryClient();
   const { visible: askVisible, openFromFeed } = useAskAi();
   const [tab, setTab] = useState<"foryou" | "following">("foryou");
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -267,7 +268,10 @@ export default function HomeScreen() {
               isActive={isFocused && activeId === item.id}
               onAskAi={() => {
                 openFromFeed(item);
-                void trackEvent({ type: "ask_ai", career: item.career_tag });
+                void (async () => {
+                  await trackEvent({ type: "ask_ai", career: item.career_tag });
+                  void queryClient.invalidateQueries({ queryKey: ["careerFit"] });
+                })();
               }}
             />
           )}
@@ -605,12 +609,14 @@ function FeedCard({
     successHaptic();
     setLiked((wasLiked) => {
       if (!wasLiked) {
-        void trackEvent({
-          type: "like",
-          postId: post.id,
-          career: post.career_tag,
-        });
-        bumpCareerFit();
+        void (async () => {
+          await trackEvent({
+            type: "like",
+            postId: post.id,
+            career: post.career_tag,
+          });
+          bumpCareerFit();
+        })();
       }
       return true;
     });
@@ -623,13 +629,15 @@ function FeedCard({
       const sec = (Date.now() - start) / 1000;
       if (sec < 0.25) return;
       const fraction = Math.min(1, sec / 42);
-      void trackEvent({
-        type: "view",
-        postId: post.id,
-        career: post.career_tag,
-        fraction,
-      });
-      bumpCareerFit();
+      void (async () => {
+        await trackEvent({
+          type: "view",
+          postId: post.id,
+          career: post.career_tag,
+          fraction,
+        });
+        bumpCareerFit();
+      })();
     };
   }, [isActive, post.id, post.career_tag, bumpCareerFit]);
 
@@ -690,12 +698,14 @@ function FeedCard({
             const next = !liked;
             setLiked(next);
             if (next) {
-              void trackEvent({
-                type: "like",
-                postId: post.id,
-                career: post.career_tag,
-              });
-              bumpCareerFit();
+              void (async () => {
+                await trackEvent({
+                  type: "like",
+                  postId: post.id,
+                  career: post.career_tag,
+                });
+                bumpCareerFit();
+              })();
             }
           }}
         />
@@ -716,12 +726,14 @@ function FeedCard({
             const next = !saved;
             setSaved(next);
             if (next) {
-              void trackEvent({
-                type: "save",
-                postId: post.id,
-                career: post.career_tag,
-              });
-              bumpCareerFit();
+              void (async () => {
+                await trackEvent({
+                  type: "save",
+                  postId: post.id,
+                  career: post.career_tag,
+                });
+                bumpCareerFit();
+              })();
             }
           }}
         />

@@ -2,8 +2,15 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, router } from "expo-router";
-import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type TextStyle,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { TraitRadarChart } from "../components/TraitRadarChart";
@@ -14,7 +21,37 @@ import { getCareerFitFromSignals } from "../lib/traitFit";
 
 const TABS = ["Saved Careers", "Saved Videos"] as const;
 
+/** ms between each character when typing the recommended career title */
+const TYPING_MS_PER_CHAR = 42;
+
 type ProfileTab = (typeof TABS)[number];
+
+function TypedCareerTitle({ text, style }: { text: string; style: TextStyle }) {
+  const [shown, setShown] = useState("");
+
+  useEffect(() => {
+    setShown("");
+    if (!text) return;
+
+    let i = 0;
+    const id = setInterval(() => {
+      i += 1;
+      setShown(text.slice(0, i));
+      if (i >= text.length) clearInterval(id);
+    }, TYPING_MS_PER_CHAR);
+
+    return () => clearInterval(id);
+  }, [text]);
+
+  return (
+    <Text style={style} accessibilityLabel={text}>
+      {shown}
+      {shown.length < text.length ? (
+        <Text style={styles.typingCaret}>▍</Text>
+      ) : null}
+    </Text>
+  );
+}
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -52,7 +89,7 @@ export default function ProfileScreen() {
         {fit?.recommendedCareer ? (
           <>
             <Text style={styles.fitRecommendationLead}>You should pursue being a…</Text>
-            <Text style={styles.fitCareerTitle}>{fit.recommendedCareer}</Text>
+            <TypedCareerTitle text={fit.recommendedCareer} style={styles.fitCareerTitle} />
           </>
         ) : (
           <Text style={styles.fitEmpty}>
@@ -157,6 +194,11 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#fff",
     textAlign: "center",
+  },
+  typingCaret: {
+    fontSize: 22,
+    fontWeight: "400",
+    color: "rgba(255,255,255,0.45)",
   },
   fitEmpty: { fontSize: 13, color: "#94a3b8", lineHeight: 18 },
   tabs: {

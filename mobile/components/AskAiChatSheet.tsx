@@ -15,6 +15,13 @@ import {
   View,
 } from "react-native";
 import Markdown from "react-native-markdown-display";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAskAi } from "../contexts/AskAiChatContext";
@@ -163,8 +170,8 @@ function Bubble({ msg }: { msg: ChatMessage }): ReactElement {
 }
 
 /**
- * Plain Modal + RN ScrollView only — no @gorhom/bottom-sheet inside Modal (that combo often breaks
- * iOS scroll/contentSize). Snap-to-expand gestures removed; backdrop tap + X close.
+ * Plain Modal + RN ScrollView — no @gorhom/bottom-sheet inside Modal (that combo often breaks
+ * iOS scroll/contentSize). Drag down from the handle or header to dismiss; backdrop + X still work.
  */
 export function AskAiChatSheet() {
   const insets = useSafeAreaInsets();
@@ -182,6 +189,53 @@ export function AskAiChatSheet() {
 
   const { width: winW, height: winH } = useWindowDimensions();
   const sheetHeight = Math.min(winH * 0.88, winH - insets.top - 8);
+
+  const translateY = useSharedValue(0);
+  const dragStartY = useSharedValue(0);
+  const sheetHeightSv = useSharedValue(sheetHeight);
+
+  useEffect(() => {
+    sheetHeightSv.value = sheetHeight;
+  }, [sheetHeight, sheetHeightSv]);
+
+  useEffect(() => {
+    if (visible) translateY.value = 0;
+  }, [visible, translateY]);
+
+  const sheetSlideStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  const dismissPanGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY(12)
+        .onBegin(() => {
+          runOnJS(Keyboard.dismiss)();
+        })
+        .onStart(() => {
+          dragStartY.value = translateY.value;
+        })
+        .onUpdate((e) => {
+          translateY.value = Math.max(0, dragStartY.value + e.translationY);
+        })
+        .onEnd((e) => {
+          const h = sheetHeightSv.value;
+          const threshold = Math.max(56, h * 0.14);
+          if (translateY.value > threshold || e.velocityY > 700) {
+            translateY.value = withSpring(
+              h,
+              { damping: 26, stiffness: 280 },
+              (finished) => {
+                if (finished) runOnJS(close)();
+              },
+            );
+          } else {
+            translateY.value = withSpring(0, { damping: 22, stiffness: 320 });
+          }
+        }),
+    [close],
+  );
 
   const listContentStyle = useMemo(
     () => [
@@ -263,12 +317,17 @@ export function AskAiChatSheet() {
             behavior={Platform.OS === "ios" ? "padding" : "height"}
             keyboardVerticalOffset={0}
           >
-            <View style={[styles.sheet, { height: sheetHeight, width: winW }]}>
-              <View style={styles.handleOuter}>
-                <View style={styles.handleIndicator} />
-              </View>
-
-              {stickyHeader}
+            <Animated.View
+              style={[styles.sheet, { height: sheetHeight, width: winW }, sheetSlideStyle]}
+            >
+              <GestureDetector gesture={dismissPanGesture}>
+                <View>
+                  <View style={styles.handleOuter} accessibilityLabel="Drag down to close">
+                    <View style={styles.handleIndicator} />
+                  </View>
+                  {stickyHeader}
+                </View>
+              </GestureDetector>
 
               <ScrollView
                 style={styles.messageList}
@@ -291,7 +350,7 @@ export function AskAiChatSheet() {
               </ScrollView>
 
               <ChatComposer sending={sending} onSend={sendFromComposer} />
-            </View>
+            </Animated.View>
           </KeyboardAvoidingView>
         </View>
       ) : null}
