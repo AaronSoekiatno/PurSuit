@@ -13,6 +13,7 @@ import { Keyboard } from "react-native";
 import type { ChatGrounding, ChatMessage } from "../lib/askAiTypes";
 import { feedPostToGroundingPayload } from "../lib/askAiTypes";
 import { invokePursuitChat } from "../lib/chatApi";
+import type { VisionPayload } from "../lib/visionTypes";
 import type { Career, FeedPost } from "../lib/fixtures";
 import { getRecentFeedPosts } from "../lib/recentFeedBuffer";
 import type { WrappedStats } from "../lib/sessionSignals";
@@ -24,7 +25,7 @@ export type AskAiContextValue = {
   sending: boolean;
   error: string | null;
   headerSubtitle: string;
-  openFromFeed: (post: FeedPost) => void;
+  openFromFeed: (post: FeedPost, vision?: VisionPayload | null) => void;
   openFromWrapped: (stats: WrappedStats) => void;
   openFromCareer: (career: Career) => void;
   close: () => void;
@@ -43,6 +44,8 @@ export function AskAiChatProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const groundingRef = useRef<ChatGrounding | null>(null);
+  /** Latest vision snapshot for feed grounding (re-sent on each message). */
+  const feedVisionRef = useRef<VisionPayload | null>(null);
 
   useEffect(() => {
     groundingRef.current = grounding;
@@ -53,13 +56,14 @@ export function AskAiChatProvider({ children }: { children: ReactNode }) {
     setMessages(next);
   }, []);
 
-  const openFromFeed = useCallback((post: FeedPost) => {
+  const openFromFeed = useCallback((post: FeedPost, vision?: VisionPayload | null) => {
     const g: ChatGrounding = {
       kind: "feed",
       activePost: feedPostToGroundingPayload(post),
       recentPosts: getRecentFeedPosts(),
     };
     setGrounding(g);
+    feedVisionRef.current = vision ?? null;
     setHeaderSubtitle(post.career_tag);
     setError(null);
     setVisible(true);
@@ -94,6 +98,7 @@ export function AskAiChatProvider({ children }: { children: ReactNode }) {
 
   const close = useCallback(() => {
     Keyboard.dismiss();
+    feedVisionRef.current = null;
     setVisible(false);
   }, []);
 
@@ -113,9 +118,15 @@ export function AskAiChatProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       try {
+        const vision =
+          g.kind === "feed" ? feedVisionRef.current ?? undefined : undefined;
         const { reply } = await invokePursuitChat({
           grounding: g,
           messages: nextHistory,
+          ...(vision &&
+          (vision.imageUrls.length > 0 || vision.imagesBase64.length > 0)
+            ? { vision }
+            : {}),
         });
         syncRef([...nextHistory, { role: "assistant", content: reply }]);
       } catch (e) {
