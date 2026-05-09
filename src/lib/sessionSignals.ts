@@ -43,9 +43,9 @@ export function getSessionId(): string {
   return id;
 }
 
-export function trackEvent(e: Omit<SignalEvent, "t"> & { t?: number }) {
+export function trackEvent(e: Record<string, unknown> & { type: SignalEvent["type"] }) {
   const all = readAll();
-  all.push({ ...(e as any), t: e.t ?? Date.now() });
+  all.push({ ...e, t: Date.now() } as SignalEvent);
   writeAll(all);
 }
 
