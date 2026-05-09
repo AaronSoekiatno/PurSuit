@@ -6,6 +6,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAskAi } from "../contexts/AskAiChatContext";
+import { tapHaptic } from "../lib/haptics";
 import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
 import {
   computeWrapped,
@@ -31,7 +32,7 @@ export default function WrappedScreen() {
     >
       <View style={[styles.head, { paddingTop: insets.top + 8 }]}>
         <Link href="/profile" asChild>
-          <Pressable hitSlop={12}>
+          <Pressable hitSlop={12} onPressIn={() => tapHaptic()}>
             <Feather name="arrow-left" size={22} color="#fff" />
           </Pressable>
         </Link>
@@ -90,6 +91,7 @@ export default function WrappedScreen() {
 
       <Pressable
         style={styles.aiBtn}
+        onPressIn={() => tapHaptic()}
         onPress={() => stats && openFromWrapped(stats)}
       >
         <Feather name="message-circle" size={18} color="#fff" />
@@ -97,11 +99,11 @@ export default function WrappedScreen() {
       </Pressable>
 
       <View style={styles.actions}>
-        <Pressable style={styles.outlineBtn}>
+        <Pressable style={styles.outlineBtn} onPressIn={() => tapHaptic()}>
           <Feather name="share-2" size={16} color="#fff" />
           <Text style={styles.outlineText}>Share recap</Text>
         </Pressable>
-        <Pressable style={styles.outlineBtn}>
+        <Pressable style={styles.outlineBtn} onPressIn={() => tapHaptic()}>
           <Feather name="bookmark" size={16} color="#fff" />
           <Text style={styles.outlineText}>Save recap</Text>
         </Pressable>

@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { Link } from "expo-router";
+import { router } from "expo-router";
 import { useState, type ReactNode } from "react";
 import {
   Pressable,
@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { selectionHaptic, tapHaptic } from "../lib/haptics";
 import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
 import { clearSignals } from "../lib/sessionSignals";
 
@@ -28,17 +29,29 @@ export default function SettingsScreen() {
       contentContainerStyle={{ paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 32 }}
     >
       <View style={[styles.head, { paddingTop: insets.top + 8 }]}>
-        <Link href="/" asChild>
-          <Pressable hitSlop={12}>
-            <Feather name="arrow-left" size={22} color="#fff" />
-          </Pressable>
-        </Link>
+        <Pressable
+          hitSlop={12}
+          onPressIn={() => tapHaptic()}
+          onPress={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace("/");
+          }}
+          accessibilityLabel="Go back"
+        >
+          <Feather name="arrow-left" size={22} color="#fff" />
+        </Pressable>
         <Text style={styles.title}>Settings</Text>
       </View>
 
       <Group title="Playback">
         <Row label="Captions" desc="Show captions on videos when available">
-          <Switch value={captions} onValueChange={setCaptions} />
+          <Switch
+            value={captions}
+            onValueChange={(v) => {
+              selectionHaptic();
+              setCaptions(v);
+            }}
+          />
         </Row>
       </Group>
 
@@ -46,6 +59,7 @@ export default function SettingsScreen() {
         <Row label="App language" desc="Affects feed and UI">
           <Pressable
             style={styles.langBtn}
+            onPressIn={() => tapHaptic()}
             onPress={() =>
               setLangIdx((i) => (i + 1) % LANGS.length)
             }
@@ -58,10 +72,17 @@ export default function SettingsScreen() {
 
       <Group title="Privacy">
         <Row label="Session-only mode" desc="Don't persist watch history for this demo build.">
-          <Switch value={sessionOnly} onValueChange={setSessionOnly} />
+          <Switch
+            value={sessionOnly}
+            onValueChange={(v) => {
+              selectionHaptic();
+              setSessionOnly(v);
+            }}
+          />
         </Row>
         <Pressable
           style={styles.clearBtn}
+          onPressIn={() => tapHaptic()}
           onPress={() => {
             void clearSignals();
           }}

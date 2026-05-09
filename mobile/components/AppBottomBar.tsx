@@ -1,13 +1,18 @@
 import { Feather } from "@expo/vector-icons";
-import { Link, usePathname } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link, usePathname, useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { homeFeedListRef } from "../lib/homeFeedListRef";
+import { tapHaptic } from "../lib/haptics";
 import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
 
 export function AppBottomBar() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const padBottom = Math.max(insets.bottom, 12);
 
   const isHome = pathname === "/" || pathname === "/index";
@@ -15,12 +20,21 @@ export function AppBottomBar() {
 
   return (
     <View style={[styles.bar, { paddingBottom: padBottom }]}>
-      <Link href="/" asChild>
-        <Pressable style={styles.item}>
-          <Feather name="home" size={24} color={isHome ? "#fff" : "rgba(255,255,255,0.6)"} />
-          <Text style={isHome ? styles.labelOn : styles.label}>Home</Text>
-        </Pressable>
-      </Link>
+      <Pressable
+        style={styles.item}
+        onPressIn={() => tapHaptic()}
+        onPress={() => {
+          if (isHome) {
+            homeFeedListRef.current?.scrollToOffset({ offset: 0, animated: true });
+            void queryClient.invalidateQueries({ queryKey: ["feed"] });
+          } else {
+            router.push("/");
+          }
+        }}
+      >
+        <Feather name="home" size={24} color={isHome ? "#fff" : "rgba(255,255,255,0.6)"} />
+        <Text style={isHome ? styles.labelOn : styles.label}>Home</Text>
+      </Pressable>
       <Link href="/create" asChild>
         <Pressable style={styles.createBtn}>
           <Feather name="plus" size={22} color="#000" />

@@ -3,6 +3,7 @@ import { Link } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { tapHaptic } from "../lib/haptics";
 import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
 
 export default function FollowingScreen() {
@@ -17,7 +18,7 @@ export default function FollowingScreen() {
     >
       <View style={styles.top}>
         <Link href="/" asChild>
-          <Pressable hitSlop={12}>
+          <Pressable hitSlop={12} onPressIn={() => tapHaptic()}>
             <Feather name="arrow-left" size={22} color="#fff" />
           </Pressable>
         </Link>
@@ -33,7 +34,7 @@ export default function FollowingScreen() {
           Tap the + on any creator's avatar in your For You feed.
         </Text>
         <Link href="/" asChild>
-          <Pressable style={styles.cta}>
+          <Pressable style={styles.cta} onPressIn={() => tapHaptic()}>
             <Text style={styles.ctaText}>Explore For You</Text>
           </Pressable>
         </Link>

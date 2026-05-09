@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { careers, type Career } from "../lib/fixtures";
+import { selectionHaptic, tapHaptic } from "../lib/haptics";
 import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
 
 const FILTERS = ["All", "Tech", "Design", "Healthcare", "Engineering", "Remote-friendly"];
@@ -38,7 +39,7 @@ export default function SearchScreen() {
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
       <View style={styles.topRow}>
         <Link href="/" asChild>
-          <Pressable hitSlop={12}>
+          <Pressable hitSlop={12} onPressIn={() => tapHaptic()}>
             <Feather name="arrow-left" size={22} color="#fff" />
           </Pressable>
         </Link>
@@ -59,6 +60,7 @@ export default function SearchScreen() {
         {FILTERS.map((f) => (
           <Pressable
             key={f}
+            onPressIn={() => selectionHaptic()}
             onPress={() => setFilter(f)}
             style={[styles.chip, filter === f && styles.chipOn]}
           >
@@ -78,6 +80,7 @@ export default function SearchScreen() {
         renderItem={({ item }: { item: Career }) => (
           <Pressable
             style={styles.card}
+            onPressIn={() => tapHaptic()}
             onPress={() => router.push(`/career/${item.id}`)}
           >
             <Text style={styles.emoji}>{item.emoji}</Text>

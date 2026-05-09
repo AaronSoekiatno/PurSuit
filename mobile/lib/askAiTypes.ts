@@ -41,6 +41,6 @@ export function feedPostToGroundingPayload(post: FeedPost): FeedGrounding["activ
     careerTag: post.career_tag,
     caption: post.caption,
     handle: post.handle,
-    videoUrl: post.video_url ?? null,
+    videoUrl: post.media_video_url ?? null,
   };
 }

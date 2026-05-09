@@ -1,30 +1,151 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { Image } from "expo-image";
+import { useIsFocused } from "@react-navigation/native";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, router } from "expo-router";
-import { useCallback, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useVideoPlayer, VideoView } from "expo-video";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ComponentRef, MutableRefObject, ReactNode } from "react";
 import {
   ActivityIndicator,
   Dimensions,
   FlatList,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
   View,
   type ViewToken,
 } from "react-native";
+import {
+  FlatList as GHFlatList,
+  Gesture,
+  GestureDetector,
+} from "react-native-gesture-handler";
+import { runOnJS } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAskAi } from "../contexts/AskAiChatContext";
 import { fetchFeed } from "../lib/feed";
 import type { FeedPost } from "../lib/fixtures";
 import { resolveCareerIdFromTag } from "../lib/fixtures";
+import { homeFeedListRef } from "../lib/homeFeedListRef";
+import {
+  selectionHaptic,
+  successHaptic,
+  tapHaptic,
+} from "../lib/haptics";
 import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
 import { recordFeedImpression } from "../lib/recentFeedBuffer";
 import { trackEvent } from "../lib/sessionSignals";
 
 const WIN_H = Dimensions.get("window").height;
+const WIN_W = Dimensions.get("window").width;
+
+/** Matches `styles.rail`: avatar → … → save → share → AI anchored above tab bar. */
+const RAIL_ANCHOR_BOTTOM = 118;
+const RAIL_AI_H = 48;
+const RAIL_GAP = 28;
+/** Approx height of one `RailBtn` (icon + label + gaps). */
+const RAIL_ACTION_BLOCK_H = 46;
+
+/**
+ * Distance from screen bottom to the bottom edge of the save button block in the rail.
+ */
+const SAVE_RAIL_BTN_BOTTOM =
+  RAIL_ANCHOR_BOTTOM +
+  RAIL_AI_H +
+  RAIL_GAP +
+  RAIL_ACTION_BLOCK_H +
+  RAIL_GAP +
+  RAIL_ACTION_BLOCK_H;
+
+/** Dots under save, nudged toward tab bar; horizontally centered (`slideMarkers`). */
+const SLIDE_MARKERS_BOTTOM = SAVE_RAIL_BTN_BOTTOM - 14 - 28;
+
+type ClipPlaybackInfo = {
+  /** 0–1 along the clip timeline */
+  progress: number;
+  playing: boolean;
+  buffering: boolean;
+};
+
+/** Seek by fraction 0–1; wired from `FeedClipVideo` when the clip is active. */
+function ClipSeekBar({
+  progress,
+  playing,
+  buffering,
+  seek,
+}: {
+  progress: number;
+  playing: boolean;
+  buffering: boolean;
+  seek: (fraction: number) => void;
+}) {
+  const [scrubFraction, setScrubFraction] = useState<number | null>(null);
+  const trackWidthRef = useRef(0);
+
+  const shown = scrubFraction ?? progress;
+
+  const seekFromX = useCallback(
+    (locationX: number) => {
+      const w = trackWidthRef.current;
+      if (!(w > 0)) return;
+      const f = Math.min(1, Math.max(0, locationX / w));
+      seek(f);
+      setScrubFraction(f);
+    },
+    [seek],
+  );
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_e, g) =>
+          Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4,
+        onPanResponderGrant: (e) => {
+          tapHaptic();
+          seekFromX(e.nativeEvent.locationX);
+        },
+        onPanResponderMove: (e) => seekFromX(e.nativeEvent.locationX),
+        onPanResponderRelease: () => setScrubFraction(null),
+        onPanResponderTerminate: () => setScrubFraction(null),
+      }),
+    [seekFromX],
+  );
+
+  return (
+    <View
+      style={[
+        styles.progressScrubWrap,
+        !playing && styles.progressOuterPaused,
+        buffering && styles.progressOuterBuffering,
+      ]}
+      accessibilityRole="adjustable"
+      accessibilityLabel="Video scrubber"
+      {...panResponder.panHandlers}
+    >
+      <View
+        style={styles.progressOuter}
+        pointerEvents="none"
+        onLayout={(e) => {
+          trackWidthRef.current = e.nativeEvent.layout.width;
+        }}
+      >
+        <View
+          style={[
+            styles.progressInner,
+            {
+              width: `${Math.min(100, Math.max(0, shown * 100))}%`,
+            },
+          ]}
+        />
+      </View>
+    </View>
+  );
+}
 
 /** TikTok-style double-tap window (ms). */
 const DOUBLE_TAP_MS = 280;
@@ -38,11 +159,12 @@ function formatCount(n: number): string {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const { visible: askVisible, openFromFeed } = useAskAi();
   const [tab, setTab] = useState<"foryou" | "following">("foryou");
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  const { data: posts, isLoading } = useQuery({
+  const { data: posts, isLoading, isFetching } = useQuery({
     queryKey: ["feed"],
     queryFn: fetchFeed,
   });
@@ -56,12 +178,6 @@ export default function HomeScreen() {
       if (post) {
         setActiveId(post.id);
         recordFeedImpression(post);
-        void trackEvent({
-          type: "view",
-          postId: post.id,
-          career: post.career_tag,
-          fraction: 0.8,
-        });
       }
     },
     [],
@@ -72,14 +188,6 @@ export default function HomeScreen() {
     [],
   );
 
-  if (isLoading) {
-    return (
-      <View style={[styles.center, { paddingTop: insets.top }]}>
-        <ActivityIndicator color="#fff" size="large" />
-      </View>
-    );
-  }
-
   const listData = tab === "following" ? [] : items;
 
   return (
@@ -89,12 +197,19 @@ export default function HomeScreen() {
         pointerEvents="box-none"
       >
         <View style={styles.headerTabs}>
-          <Pressable onPress={() => setTab("following")}>
+          <Pressable
+            onPressIn={() => selectionHaptic()}
+            onPress={() => setTab("following")}
+          >
             <Text style={[styles.tabText, tab === "following" && styles.tabOn]}>
               Following
             </Text>
           </Pressable>
-          <Pressable onPress={() => setTab("foryou")} style={styles.tabForyou}>
+          <Pressable
+            onPressIn={() => selectionHaptic()}
+            onPress={() => setTab("foryou")}
+            style={styles.tabForyou}
+          >
             <Text style={[styles.tabText, tab === "foryou" && styles.tabOn]}>
               For You
             </Text>
@@ -103,71 +218,318 @@ export default function HomeScreen() {
         </View>
         <View style={styles.headerIcons}>
           <Link href="/search" asChild>
-            <Pressable hitSlop={12}>
+            <Pressable hitSlop={12} onPressIn={() => tapHaptic()}>
               <Feather name="search" size={24} color="#fff" />
             </Pressable>
           </Link>
           <Link href="/settings" asChild>
-            <Pressable hitSlop={12}>
+            <Pressable hitSlop={12} onPressIn={() => tapHaptic()}>
               <Feather name="more-horizontal" size={24} color="#fff" />
             </Pressable>
           </Link>
         </View>
       </View>
 
-      <FlatList
-        data={listData}
-        scrollEnabled={!askVisible}
-        keyExtractor={(item) => item.id}
-        pagingEnabled
-        showsVerticalScrollIndicator={false}
-        decelerationRate="fast"
-        snapToAlignment="start"
-        viewabilityConfig={viewabilityConfig}
-        onViewableItemsChanged={onViewableItemsChanged}
-        renderItem={({ item }) => (
-          <FeedCard
-            post={item}
-            isActive={activeId === item.id}
-            onAskAi={() => {
-              openFromFeed(item);
-              void trackEvent({ type: "ask_ai", career: item.career_tag });
-            }}
-          />
-        )}
-        ListEmptyComponent={
-          tab === "following" ? (
-            <View style={[styles.emptyPage, { height: WIN_H }]}>
-              <Feather name="users" size={48} color="#64748b" />
-              <Text style={styles.emptyTitle}>No followed creators yet</Text>
-              <Text style={styles.emptySub}>
-                Tap the + on a creator avatar in For You, or explore careers in Search.
-              </Text>
-              <Pressable style={styles.cta} onPress={() => setTab("foryou")}>
-                <Text style={styles.ctaText}>Explore For You</Text>
-              </Pressable>
-              <Link href="/search" asChild>
-                <Pressable style={[styles.cta, styles.ctaSecondary]}>
-                  <Text style={styles.ctaSecondaryText}>Browse careers</Text>
+      {isLoading ? (
+        <View style={[styles.center, { paddingTop: insets.top }]}>
+          <ActivityIndicator color="#fff" size="large" />
+        </View>
+      ) : (
+        <FlatList
+          ref={(el) => {
+            homeFeedListRef.current = el;
+          }}
+          data={listData}
+          scrollEnabled={!askVisible}
+          keyExtractor={(item) => item.id}
+          pagingEnabled
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          decelerationRate="fast"
+          snapToAlignment="start"
+          viewabilityConfig={viewabilityConfig}
+          onViewableItemsChanged={onViewableItemsChanged}
+          renderItem={({ item }) => (
+            <FeedCard
+              post={item}
+              isActive={isFocused && activeId === item.id}
+              onAskAi={() => {
+                openFromFeed(item);
+                void trackEvent({ type: "ask_ai", career: item.career_tag });
+              }}
+            />
+          )}
+          ListEmptyComponent={
+            tab === "following" ? (
+              <View style={[styles.emptyPage, { height: WIN_H }]}>
+                <Feather name="users" size={48} color="#64748b" />
+                <Text style={styles.emptyTitle}>No followed creators yet</Text>
+                <Text style={styles.emptySub}>
+                  Tap the + on a creator avatar in For You, or explore careers in Search.
+                </Text>
+                <Pressable
+                  style={styles.cta}
+                  onPressIn={() => tapHaptic()}
+                  onPress={() => setTab("foryou")}
+                >
+                  <Text style={styles.ctaText}>Explore For You</Text>
                 </Pressable>
-              </Link>
-            </View>
-          ) : (
-            <View style={[styles.emptyPage, { height: WIN_H }]}>
-              <Text style={styles.emptyTitle}>No videos yet</Text>
-              <Text style={styles.emptySub}>
-                Publish rows to feed_posts in Supabase to populate the feed.
-              </Text>
-            </View>
-          )
-        }
-        getItemLayout={(_, index) => ({
-          length: WIN_H,
-          offset: WIN_H * index,
-          index,
-        })}
-      />
+                <Link href="/search" asChild>
+                  <Pressable
+                    style={[styles.cta, styles.ctaSecondary]}
+                    onPressIn={() => tapHaptic()}
+                  >
+                    <Text style={styles.ctaSecondaryText}>Browse careers</Text>
+                  </Pressable>
+                </Link>
+              </View>
+            ) : (
+              <View style={[styles.emptyPage, { height: WIN_H }]}>
+                <Text style={styles.emptyTitle}>No videos yet</Text>
+                <Text style={styles.emptySub}>
+                  Publish rows to feed_posts in Supabase to populate the feed.
+                </Text>
+              </View>
+            )
+          }
+          getItemLayout={(_, index) => ({
+            length: WIN_H,
+            offset: WIN_H * index,
+            index,
+          })}
+        />
+      )}
 
+      {!isLoading && isFetching && items.length > 0 ? (
+        <View style={styles.feedRefetchOverlay} pointerEvents="none">
+          <ActivityIndicator color="#fff" size="large" />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function FeedClipVideo({
+  uri,
+  isActive,
+  onPlaybackUpdate,
+  onDoubleTapLike,
+  clipSeekRef,
+}: {
+  uri: string;
+  isActive: boolean;
+  onPlaybackUpdate?: (info: ClipPlaybackInfo) => void;
+  onDoubleTapLike: () => void;
+  clipSeekRef: MutableRefObject<((fraction: number) => void) | null>;
+}) {
+  const [pausedByUser, setPausedByUser] = useState(false);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTapRef = useRef(0);
+
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.muted = false;
+    p.timeUpdateEventInterval = 0.1;
+  });
+
+  useEffect(() => {
+    if (!isActive) {
+      clipSeekRef.current = null;
+      return;
+    }
+
+    clipSeekRef.current = (fraction: number) => {
+      const dur = player.duration;
+      if (!(typeof dur === "number" && Number.isFinite(dur) && dur > 0)) return;
+      const t = Math.min(dur, Math.max(0, fraction * dur));
+      player.currentTime = t;
+      onPlaybackUpdate?.({
+        progress: t / dur,
+        playing: player.playing,
+        buffering: player.status === "loading",
+      });
+    };
+
+    return () => {
+      clipSeekRef.current = null;
+    };
+  }, [player, isActive, onPlaybackUpdate, clipSeekRef]);
+
+  useEffect(() => {
+    if (!onPlaybackUpdate || !isActive) return;
+
+    const sync = () => {
+      const dur = player.duration;
+      const cur = player.currentTime;
+      const safeDur =
+        typeof dur === "number" && Number.isFinite(dur) && dur > 0 ? dur : 0;
+      const progress =
+        safeDur > 0 ? Math.min(1, Math.max(0, cur / safeDur)) : 0;
+      onPlaybackUpdate({
+        progress,
+        playing: player.playing,
+        buffering: player.status === "loading",
+      });
+    };
+
+    const subs = [
+      player.addListener("timeUpdate", sync),
+      player.addListener("playingChange", sync),
+      player.addListener("statusChange", sync),
+      player.addListener("sourceLoad", sync),
+    ];
+    sync();
+
+    return () => {
+      for (const s of subs) s.remove();
+    };
+  }, [player, onPlaybackUpdate, isActive]);
+
+  useEffect(() => {
+    if (!isActive) setPausedByUser(false);
+  }, [isActive]);
+
+  useEffect(() => {
+    if (isActive && !pausedByUser) void player.play();
+    else player.pause();
+  }, [isActive, pausedByUser, player]);
+
+  useEffect(
+    () => () => {
+      if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+    },
+    [],
+  );
+
+  const showPausedHint = isActive && pausedByUser;
+
+  const onOverlayPress = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapRef.current < DOUBLE_TAP_MS) {
+      if (tapTimerRef.current) {
+        clearTimeout(tapTimerRef.current);
+        tapTimerRef.current = null;
+      }
+      lastTapRef.current = 0;
+      onDoubleTapLike();
+      return;
+    }
+    lastTapRef.current = now;
+    if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+    tapTimerRef.current = setTimeout(() => {
+      tapTimerRef.current = null;
+      lastTapRef.current = 0;
+      tapHaptic();
+      setPausedByUser((p) => !p);
+    }, DOUBLE_TAP_MS);
+  }, [onDoubleTapLike]);
+
+  return (
+    <View style={styles.mediaLayer}>
+      <VideoView
+        style={StyleSheet.absoluteFill}
+        player={player}
+        contentFit="cover"
+        nativeControls={false}
+      />
+      <Pressable
+        style={styles.videoTapOverlay}
+        onPress={onOverlayPress}
+        accessibilityLabel={
+          pausedByUser
+            ? "Play video. Double tap to like."
+            : "Pause video. Double tap to like."
+        }
+      />
+      {showPausedHint ? (
+        <View style={styles.pauseHintWrap} pointerEvents="none">
+          <Ionicons name="play" size={56} color="rgba(255,255,255,0.92)" />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function FeedSlideshow({
+  slides,
+  onDoubleTapLike,
+}: {
+  slides: FeedPost["slideshow_slides"];
+  onDoubleTapLike: () => void;
+}) {
+  type SlideRow = FeedPost["slideshow_slides"][number];
+  const listRef = useRef<ComponentRef<typeof GHFlatList<SlideRow>>>(null);
+  const [index, setIndex] = useState(0);
+
+  const doubleTapGesture = useMemo(
+    () =>
+      Gesture.Tap()
+        .numberOfTaps(2)
+        .onEnd((_e, success) => {
+          if (success) runOnJS(onDoubleTapLike)();
+        }),
+    [onDoubleTapLike],
+  );
+
+  const slideshowGestures = useMemo(
+    () =>
+      Gesture.Simultaneous(Gesture.Native(), doubleTapGesture),
+    [doubleTapGesture],
+  );
+
+  return (
+    <View style={styles.mediaLayer}>
+      <GestureDetector gesture={slideshowGestures}>
+        <GHFlatList<SlideRow>
+          ref={listRef}
+          style={StyleSheet.absoluteFill}
+          data={slides}
+          horizontal
+          pagingEnabled
+          nestedScrollEnabled
+          keyExtractor={(item, i) => `${i}-${item.uri}`}
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(e) => {
+            const x = e.nativeEvent.contentOffset.x;
+            setIndex(
+              Math.min(
+                slides.length - 1,
+                Math.max(0, Math.round(x / WIN_W)),
+              ),
+            );
+          }}
+          getItemLayout={(_, i) => ({
+            length: WIN_W,
+            offset: WIN_W * i,
+            index: i,
+          })}
+          renderItem={({ item }) => (
+            <View style={{ width: WIN_W, height: WIN_H }}>
+              <Image
+                source={{ uri: item.uri }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+                transition={200}
+              />
+            </View>
+          )}
+        />
+      </GestureDetector>
+      {slides.length > 0 ? (
+        <View style={styles.slideMarkers} pointerEvents="none">
+          <View style={styles.slideMarkersRow}>
+            {slides.map((_, i) => (
+              <View
+                key={`dot-${i}-${slides[i]?.uri}`}
+                style={[
+                  styles.slideMarkerDot,
+                  i === index && styles.slideMarkerDotActive,
+                ]}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -181,38 +543,85 @@ function FeedCard({
   isActive: boolean;
   onAskAi: () => void;
 }) {
+  const queryClient = useQueryClient();
+  const bumpCareerFit = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["careerFit"] });
+  }, [queryClient]);
+
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
-  const lastTapMs = useRef(0);
+  const [clipPlayback, setClipPlayback] = useState<ClipPlaybackInfo>({
+    progress: 0,
+    playing: false,
+    buffering: true,
+  });
 
-  const toggleLike = useCallback(() => {
-    setLiked((prev) => {
-      const next = !prev;
-      if (next)
-        void trackEvent({ type: "like", postId: post.id, career: post.career_tag });
-      return next;
-    });
-  }, [post.career_tag, post.id]);
+  const clipSeekRef = useRef<((fraction: number) => void) | null>(null);
 
-  const likeFromDoubleTap = useCallback(() => {
-    setLiked((was) => {
-      if (was) return was;
-      void trackEvent({ type: "like", postId: post.id, career: post.career_tag });
+  const showVideo =
+    post.post_type === "video" && Boolean(post.media_video_url?.trim());
+  const showSlideshow =
+    post.post_type === "slideshow" && post.slideshow_slides.length > 0;
+
+  /** Once the clip has played without buffering, hide loading overlay until next post. */
+  const [videoReadyLatch, setVideoReadyLatch] = useState(false);
+
+  useEffect(() => {
+    setVideoReadyLatch(false);
+  }, [post.id]);
+
+  useEffect(() => {
+    if (showVideo && isActive && clipPlayback.playing && !clipPlayback.buffering) {
+      setVideoReadyLatch(true);
+    }
+  }, [showVideo, isActive, clipPlayback.playing, clipPlayback.buffering]);
+
+  const showVideoLoadingOverlay =
+    showVideo &&
+    isActive &&
+    (!videoReadyLatch || clipPlayback.buffering);
+
+  const onClipPlaybackUpdate = useCallback((info: ClipPlaybackInfo) => {
+    setClipPlayback(info);
+  }, []);
+
+  const seekClip = useCallback((fraction: number) => {
+    clipSeekRef.current?.(fraction);
+  }, []);
+
+  const onDoubleTapLike = useCallback(() => {
+    successHaptic();
+    setLiked((wasLiked) => {
+      if (!wasLiked) {
+        void trackEvent({
+          type: "like",
+          postId: post.id,
+          career: post.career_tag,
+        });
+        bumpCareerFit();
+      }
       return true;
     });
-  }, [post.career_tag, post.id]);
+  }, [post.id, post.career_tag, bumpCareerFit]);
 
-  const onVideoAreaPress = useCallback(() => {
-    const now = Date.now();
-    if (now - lastTapMs.current < DOUBLE_TAP_MS) {
-      lastTapMs.current = 0;
-      likeFromDoubleTap();
-    } else {
-      lastTapMs.current = now;
-    }
-  }, [likeFromDoubleTap]);
+  useEffect(() => {
+    if (!isActive) return;
+    const start = Date.now();
+    return () => {
+      const sec = (Date.now() - start) / 1000;
+      if (sec < 0.25) return;
+      const fraction = Math.min(1, sec / 42);
+      void trackEvent({
+        type: "view",
+        postId: post.id,
+        career: post.career_tag,
+        fraction,
+      });
+      bumpCareerFit();
+    };
+  }, [isActive, post.id, post.career_tag, bumpCareerFit]);
 
-  const initial = post.handle.replace("@", "")[0]?.toUpperCase() ?? "P";
+  const initial = post.handle.replace(/^@/, "")[0]?.toUpperCase() ?? "P";
   const careerPath = resolveCareerIdFromTag(post.career_tag);
 
   return (
@@ -223,11 +632,26 @@ function FeedCard({
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      <Pressable
-        style={styles.doubleTapLayer}
-        onPress={onVideoAreaPress}
-        accessibilityLabel="Double-tap to like"
-      />
+      {showVideo && post.media_video_url ? (
+        <FeedClipVideo
+          uri={post.media_video_url}
+          isActive={isActive}
+          onPlaybackUpdate={onClipPlaybackUpdate}
+          onDoubleTapLike={onDoubleTapLike}
+          clipSeekRef={clipSeekRef}
+        />
+      ) : showSlideshow ? (
+        <FeedSlideshow
+          slides={post.slideshow_slides}
+          onDoubleTapLike={onDoubleTapLike}
+        />
+      ) : null}
+
+      {showVideoLoadingOverlay ? (
+        <View style={styles.feedLoadingOverlay} pointerEvents="none">
+          <ActivityIndicator color="#fff" size="large" />
+        </View>
+      ) : null}
       <View style={styles.rail}>
         <View style={styles.avatarWrap}>
           <LinearGradient
@@ -250,7 +674,18 @@ function FeedCard({
             />
           }
           label={formatCount(post.likes + (liked ? 1 : 0))}
-          onPress={toggleLike}
+          onPress={() => {
+            const next = !liked;
+            setLiked(next);
+            if (next) {
+              void trackEvent({
+                type: "like",
+                postId: post.id,
+                career: post.career_tag,
+              });
+              bumpCareerFit();
+            }
+          }}
         />
         <RailBtn
           icon={<Feather name="message-circle" size={28} color="#fff" />}
@@ -268,8 +703,14 @@ function FeedCard({
           onPress={() => {
             const next = !saved;
             setSaved(next);
-            if (next)
-              void trackEvent({ type: "save", postId: post.id, career: post.career_tag });
+            if (next) {
+              void trackEvent({
+                type: "save",
+                postId: post.id,
+                career: post.career_tag,
+              });
+              bumpCareerFit();
+            }
           }}
         />
         <RailBtn
@@ -278,6 +719,7 @@ function FeedCard({
         />
 
         <Pressable
+          onPressIn={() => tapHaptic()}
           onPress={onAskAi}
           style={styles.aiCircle}
           accessibilityLabel="Ask AI"
@@ -288,7 +730,12 @@ function FeedCard({
 
       <View style={[styles.meta, { paddingBottom: APP_TAB_BAR_HEIGHT + 34 }]}>
         <Pressable
-          onPress={() => router.push(`/career/${careerPath}`)}
+          onPressIn={() => tapHaptic()}
+          onPress={() =>
+            router.push(
+              `/career/${encodeURIComponent(careerPath)}?t=${encodeURIComponent(post.career_tag)}`,
+            )
+          }
           style={styles.careerPill}
         >
           <Text style={styles.careerPillEmoji}>💼</Text>
@@ -300,10 +747,13 @@ function FeedCard({
         </Text>
       </View>
 
-      {isActive && (
-        <View style={styles.progressOuter}>
-          <View style={styles.progressInner} />
-        </View>
+      {showVideo && isActive && (
+        <ClipSeekBar
+          progress={clipPlayback.progress}
+          playing={clipPlayback.playing}
+          buffering={clipPlayback.buffering}
+          seek={seekClip}
+        />
       )}
     </View>
   );
@@ -319,7 +769,11 @@ function RailBtn({
   onPress?: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={styles.railBtn}>
+    <Pressable
+      onPressIn={() => tapHaptic()}
+      onPress={onPress}
+      style={styles.railBtn}
+    >
       {icon}
       <Text style={styles.railLabel}>{label}</Text>
     </Pressable>
@@ -358,18 +812,12 @@ const styles = StyleSheet.create({
   },
   headerIcons: { flexDirection: "row", alignItems: "center", gap: 14 },
 
-  /** Below meta / rail so career pill and actions stay tappable. */
-  doubleTapLayer: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 2,
-  },
-
   /** Sit above tab bar; tuned so AI button lines up with caption text. */
   rail: {
     position: "absolute",
     right: 12,
     bottom: APP_TAB_BAR_HEIGHT + 42,
-    zIndex: 10,
+    zIndex: 30,
     alignItems: "center",
     gap: 28,
   },
@@ -411,7 +859,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 70,
     bottom: 0,
-    zIndex: 5,
+    zIndex: 25,
     paddingHorizontal: 20,
     paddingTop: 24,
   },
@@ -436,20 +884,102 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.88)",
   },
 
-  progressOuter: {
+  mediaLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
+  },
+  videoTapOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+  },
+  pauseHintWrap: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 3,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.12)",
+  },
+  slideMarkers: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: SLIDE_MARKERS_BOTTOM,
+    zIndex: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  slideMarkersRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    flexWrap: "wrap",
+    maxWidth: "88%",
+  },
+  slideMarkerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.28)",
+  },
+  /** Active slide: same circle shape, brighter / slightly larger (“lit”). */
+  slideMarkerDotActive: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: "#fff",
+    opacity: 1,
+    shadowColor: "#fff",
+    shadowOpacity: 0.55,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 6,
+  },
+
+  /** Full-screen dim + spinner while feed refetches (keeps prior items visible). */
+  feedRefetchOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.28)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 40,
+  },
+
+  /** Until the active clip is playing, dim the card and show a loader. */
+  feedLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 14,
+  },
+
+  /** Extra vertical padding for scrubbing without overlapping the tab bar. */
+  progressScrubWrap: {
     position: "absolute",
     left: 20,
     right: 20,
     bottom: APP_TAB_BAR_HEIGHT + 12,
-    height: 2,
-    borderRadius: 1,
+    paddingVertical: 12,
+    justifyContent: "center",
+    zIndex: 35,
+  },
+  progressOuter: {
+    height: 3,
+    borderRadius: 2,
     backgroundColor: "rgba(255,255,255,0.15)",
     overflow: "hidden",
   },
+  progressOuterPaused: {
+    opacity: 0.55,
+  },
+  progressOuterBuffering: {
+    opacity: 0.75,
+  },
   progressInner: {
-    width: "33%",
     height: "100%",
-    backgroundColor: "rgba(255,255,255,0.85)",
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderRadius: 2,
   },
 
   emptyPage: {

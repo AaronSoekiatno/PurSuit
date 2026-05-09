@@ -1,7 +1,9 @@
 import { Feather } from "@expo/vector-icons";
 import { Link, useLocalSearchParams, router } from "expo-router";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type ReactNode } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,21 +13,54 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAskAi } from "../../contexts/AskAiChatContext";
+import { fetchCareerFromDb, mapCareerRowToCareer } from "../../lib/careerRemote";
 import { careers } from "../../lib/fixtures";
+import { tapHaptic } from "../../lib/haptics";
 import { APP_TAB_BAR_HEIGHT } from "../../lib/layout";
 import { slugify } from "../../lib/slug";
 
 export default function CareerDetailScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, t } = useLocalSearchParams<{ id?: string; t?: string }>();
   const insets = useSafeAreaInsets();
   const { visible: askVisible, openFromCareer } = useAskAi();
   const [saved, setSaved] = useState(false);
 
-  const career = useMemo(() => {
-    const raw = typeof id === "string" ? id : Array.isArray(id) ? id[0] : "";
-    if (!raw) return undefined;
-    return careers.find((c) => c.id === raw || slugify(c.title) === raw);
-  }, [id]);
+  const rawId = typeof id === "string" ? id : Array.isArray(id) ? id[0] : "";
+  const titleFromFeed =
+    typeof t === "string" ? t : Array.isArray(t) ? t[0] : undefined;
+
+  const localCareer = useMemo(() => {
+    if (!rawId) return undefined;
+    return careers.find((c) => c.id === rawId || slugify(c.title) === rawId);
+  }, [rawId]);
+
+  const needsRemote = !localCareer && !!rawId;
+
+  const { data: remoteRow, isPending } = useQuery({
+    queryKey: ["careerFromDb", rawId, titleFromFeed ?? ""],
+    queryFn: () => fetchCareerFromDb(rawId, titleFromFeed),
+    staleTime: 120_000,
+    enabled: needsRemote,
+  });
+
+  const career =
+    localCareer ?? (remoteRow ? mapCareerRowToCareer(remoteRow) : undefined);
+
+  if (needsRemote && isPending) {
+    return (
+      <View
+        style={[
+          styles.missRoot,
+          {
+            paddingTop: insets.top + 8,
+            paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 24,
+          },
+        ]}
+      >
+        <ActivityIndicator color="#fff" size="large" />
+      </View>
+    );
+  }
 
   if (!career) {
     return (
@@ -36,11 +71,15 @@ export default function CareerDetailScreen() {
         ]}
       >
         <Text style={styles.miss}>Career not found.</Text>
-        <Pressable style={styles.cta} onPress={() => router.push("/search")}>
+        <Pressable
+          style={styles.cta}
+          onPressIn={() => tapHaptic()}
+          onPress={() => router.push("/search")}
+        >
           <Text style={styles.ctaText}>Browse careers</Text>
         </Pressable>
         <Link href="/" asChild>
-          <Pressable style={styles.link}>
+          <Pressable style={styles.link} onPressIn={() => tapHaptic()}>
             <Text style={styles.linkText}>Back home</Text>
           </Pressable>
         </Link>
@@ -57,11 +96,16 @@ export default function CareerDetailScreen() {
       contentContainerStyle={{ paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 28 }}
     >
       <View style={[styles.toolbar, { paddingTop: insets.top + 8 }]}>
-        <Pressable hitSlop={14} onPress={() => router.back()}>
+        <Pressable
+          hitSlop={14}
+          onPressIn={() => tapHaptic()}
+          onPress={() => router.back()}
+        >
           <Feather name="arrow-left" size={22} color="#fff" />
         </Pressable>
         <Pressable
           hitSlop={14}
+          onPressIn={() => tapHaptic()}
           onPress={() => setSaved((v) => !v)}
           accessibilityLabel="Bookmark"
           style={styles.bookmarkBtn}
@@ -84,7 +128,11 @@ export default function CareerDetailScreen() {
 
       <Text style={styles.overview}>{c.overview}</Text>
 
-      <Pressable style={styles.aiBtn} onPress={() => openFromCareer(c)}>
+      <Pressable
+        style={styles.aiBtn}
+        onPressIn={() => tapHaptic()}
+        onPress={() => openFromCareer(c)}
+      >
         <Feather name="zap" size={16} color="#fff" />
         <Text style={styles.aiText}>Ask AI about this</Text>
       </Pressable>
