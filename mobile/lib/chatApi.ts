@@ -1,4 +1,5 @@
 import type { ChatGrounding, ChatMessage } from "./askAiTypes";
+import type { VisionPayload } from "./visionTypes";
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -6,6 +7,8 @@ const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 export type PursuitChatRequest = {
   grounding: ChatGrounding;
   messages: ChatMessage[];
+  /** Feed-only: slideshow URLs + optional video-frame JPEGs for Claude vision. */
+  vision?: VisionPayload;
 };
 
 export type PursuitChatResponse = { reply: string } | { error: string; detail?: string };
