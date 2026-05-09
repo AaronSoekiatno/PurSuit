@@ -4,6 +4,28 @@ import { supabase } from "./supabase";
 import { feedFixtures, type FeedPost } from "./fixtures";
 import { traitTagsToVector } from "./traitFit";
 
+/** Demo creator names — one is picked at random per post when shaping the feed. */
+const FEED_DISPLAY_NAMES = [
+  "Sookie",
+  "Paman",
+  "Yohan",
+  "Bonas",
+  "Larry",
+  "GoatNBA",
+  "Khloe",
+  "Braden",
+  "Ang"
+] as const;
+
+function randomFeedHandle(): string {
+  const i = Math.floor(Math.random() * FEED_DISPLAY_NAMES.length);
+  return FEED_DISPLAY_NAMES[i]!;
+}
+
+function withRandomFeedHandles(posts: FeedPost[]): FeedPost[] {
+  return posts.map((p) => ({ ...p, handle: randomFeedHandle() }));
+}
+
 async function resolveRowMedia(row: FeedPostRowWithCareer): Promise<{
   media_video_url: string | null;
   media_poster_url: string | null;
@@ -67,14 +89,13 @@ export async function fetchFeed(): Promise<FeedPost[]> {
       .order("published_at", { ascending: false })
       .limit(80);
 
-    if (error || !data?.length) return feedFixtures;
+    if (error || !data?.length) return withRandomFeedHandles(feedFixtures);
 
     const rows = shuffleArray(data as FeedPostRowWithCareer[]);
     const resolved = await Promise.all(rows.map((r) => resolveRowMedia(r)));
 
     return rows.map((row, i): FeedPost => {
       const title = row.career_title ?? "Career";
-      const slug = title.toLowerCase().replace(/\s+/g, "");
       const r = resolved[i]!;
       const cap =
         Array.isArray(row.slideshow) && row.slideshow[0]?.caption
@@ -92,7 +113,7 @@ export async function fetchFeed(): Promise<FeedPost[]> {
 
       return {
         id: String(row.id),
-        handle: row.industry ? `@${slug}` : `@creator`,
+        handle: randomFeedHandle(),
         career_tag: title,
         career_trait_tags,
         caption: cap,
@@ -108,7 +129,7 @@ export async function fetchFeed(): Promise<FeedPost[]> {
       };
     });
   } catch {
-    return feedFixtures;
+    return withRandomFeedHandles(feedFixtures);
   }
 }
 

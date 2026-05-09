@@ -46,12 +46,6 @@ export default function ProfileScreen() {
         </Link>
       </View>
 
-      <View style={styles.stats}>
-        <Stat label="Watched" value="48" />
-        <Stat label="Saved" value="12" />
-        <Stat label="Recaps" value="3" />
-      </View>
-
       <Pressable
         style={styles.wrappedBanner}
         onPressIn={() => tapHaptic()}
@@ -67,16 +61,10 @@ export default function ProfileScreen() {
       </Pressable>
 
       <View style={styles.fitCard}>
-        <Text style={styles.fitLabel}>Fit signal (from watching & saves)</Text>
         {fit?.recommendedCareer ? (
           <>
-            <Text style={styles.fitTitle}>Closest match</Text>
-            <Text style={styles.fitCareer}>{fit.recommendedCareer}</Text>
-            {fit.ranking[0] != null ? (
-              <Text style={styles.fitMeta}>
-                Cosine similarity {(fit.ranking[0].similarity * 100).toFixed(1)}%
-              </Text>
-            ) : null}
+            <Text style={styles.fitRecommendationLead}>You should pursue being a…</Text>
+            <Text style={styles.fitCareerTitle}>{fit.recommendedCareer}</Text>
           </>
         ) : (
           <Text style={styles.fitEmpty}>
@@ -128,15 +116,6 @@ export default function ProfileScreen() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.stat}>
-      <Text style={styles.statVal}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
 function Empty({ msg }: { msg: string }) {
   return <Text style={styles.empty}>{msg}</Text>;
 }
@@ -160,25 +139,8 @@ const styles = StyleSheet.create({
   avatarLetter: { fontSize: 22, fontWeight: "700", color: "#fff" },
   name: { fontSize: 16, fontWeight: "700", color: "#fff" },
   handle: { marginTop: 2, fontSize: 12, color: "#94a3b8" },
-  stats: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 20,
-    paddingHorizontal: 20,
-  },
-  stat: {
-    flex: 1,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#334155",
-    backgroundColor: "#0f172a",
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  statVal: { fontSize: 16, fontWeight: "700", color: "#fff" },
-  statLabel: { marginTop: 4, fontSize: 11, color: "#94a3b8" },
   wrappedBanner: {
-    marginTop: 18,
+    marginTop: 22,
     marginHorizontal: 20,
     borderRadius: 16,
     borderWidth: 1,
@@ -200,13 +162,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#334155",
     backgroundColor: "#0f172a",
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
     gap: 6,
   },
   fitLabel: { fontSize: 11, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5 },
-  fitTitle: { fontSize: 12, fontWeight: "600", color: "#cbd5e1", marginTop: 4 },
-  fitCareer: { fontSize: 18, fontWeight: "800", color: "#fff" },
-  fitMeta: { fontSize: 12, color: "#a78bfa", marginTop: 4 },
+  fitRecommendationLead: {
+    marginTop: 0,
+    fontSize: 17,
+    lineHeight: 24,
+    color: "#e2e8f0",
+    textAlign: "center",
+  },
+  fitCareerTitle: {
+    marginTop: 8,
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: "800",
+    color: "#fff",
+    textAlign: "center",
+  },
   fitEmpty: { fontSize: 13, color: "#94a3b8", lineHeight: 18 },
   tabs: {
     flexDirection: "row",

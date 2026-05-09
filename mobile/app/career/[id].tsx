@@ -1,7 +1,9 @@
 import { Feather } from "@expo/vector-icons";
 import { Link, useLocalSearchParams, router } from "expo-router";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type ReactNode } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,21 +13,50 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AskAiModal } from "../../components/AskAiModal";
+import { fetchCareerFromDb, mapCareerRowToCareer } from "../../lib/careerRemote";
 import { careers } from "../../lib/fixtures";
 import { tapHaptic } from "../../lib/haptics";
 import { slugify } from "../../lib/slug";
 
 export default function CareerDetailScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, t } = useLocalSearchParams<{ id?: string; t?: string }>();
   const insets = useSafeAreaInsets();
   const [saved, setSaved] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
 
-  const career = useMemo(() => {
-    const raw = typeof id === "string" ? id : Array.isArray(id) ? id[0] : "";
-    if (!raw) return undefined;
-    return careers.find((c) => c.id === raw || slugify(c.title) === raw);
-  }, [id]);
+  const rawId = typeof id === "string" ? id : Array.isArray(id) ? id[0] : "";
+  const titleFromFeed =
+    typeof t === "string" ? t : Array.isArray(t) ? t[0] : undefined;
+
+  const localCareer = useMemo(() => {
+    if (!rawId) return undefined;
+    return careers.find((c) => c.id === rawId || slugify(c.title) === rawId);
+  }, [rawId]);
+
+  const needsRemote = !localCareer && !!rawId;
+
+  const { data: remoteRow, isPending } = useQuery({
+    queryKey: ["careerFromDb", rawId, titleFromFeed ?? ""],
+    queryFn: () => fetchCareerFromDb(rawId, titleFromFeed),
+    staleTime: 120_000,
+    enabled: needsRemote,
+  });
+
+  const career =
+    localCareer ?? (remoteRow ? mapCareerRowToCareer(remoteRow) : undefined);
+
+  if (needsRemote && isPending) {
+    return (
+      <View
+        style={[
+          styles.missRoot,
+          { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 },
+        ]}
+      >
+        <ActivityIndicator color="#fff" size="large" />
+      </View>
+    );
+  }
 
   if (!career) {
     return (

@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { Link } from "expo-router";
+import { router } from "expo-router";
 import { useState, type ReactNode } from "react";
 import {
   Pressable,
@@ -28,11 +28,17 @@ export default function SettingsScreen() {
       contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
     >
       <View style={[styles.head, { paddingTop: insets.top + 8 }]}>
-        <Link href="/" asChild>
-          <Pressable hitSlop={12} onPressIn={() => tapHaptic()}>
-            <Feather name="arrow-left" size={22} color="#fff" />
-          </Pressable>
-        </Link>
+        <Pressable
+          hitSlop={12}
+          onPressIn={() => tapHaptic()}
+          onPress={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace("/");
+          }}
+          accessibilityLabel="Go back"
+        >
+          <Feather name="arrow-left" size={22} color="#fff" />
+        </Pressable>
         <Text style={styles.title}>Settings</Text>
       </View>
 

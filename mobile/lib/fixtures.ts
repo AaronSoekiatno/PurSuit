@@ -47,7 +47,7 @@ const fixtureMedia = {
 export const feedFixtures: FeedPost[] = [
   {
     id: "1",
-    handle: "@careercoach",
+    handle: "careercoach",
     career_tag: "Data Analyst",
     career_trait_tags: { ...fixtureTraits },
     caption:
@@ -61,7 +61,7 @@ export const feedFixtures: FeedPost[] = [
   },
   {
     id: "2",
-    handle: "@buildwithme",
+    handle: "buildwithme",
     career_tag: "Product Designer",
     career_trait_tags: { ...fixtureTraits, creativity: 0.88, social: 0.72 },
     caption: "From wireframe to ship in one week. Tools I actually use day to day.",
@@ -74,7 +74,7 @@ export const feedFixtures: FeedPost[] = [
   },
   {
     id: "3",
-    handle: "@codingnomad",
+    handle: "codingnomad",
     career_tag: "Software Engineer",
     career_trait_tags: {
       ...fixtureTraits,
@@ -92,7 +92,7 @@ export const feedFixtures: FeedPost[] = [
   },
   {
     id: "4",
-    handle: "@nursediaries",
+    handle: "nursediaries",
     career_tag: "Registered Nurse",
     career_trait_tags: {
       ...fixtureTraits,
@@ -110,7 +110,7 @@ export const feedFixtures: FeedPost[] = [
   },
   {
     id: "5",
-    handle: "@onthebench",
+    handle: "onthebench",
     career_tag: "Mechanical Engineer",
     career_trait_tags: {
       ...fixtureTraits,

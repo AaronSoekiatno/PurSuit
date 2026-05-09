@@ -637,7 +637,7 @@ function FeedCard({
     };
   }, [isActive, post.id, post.career_tag, bumpCareerFit]);
 
-  const initial = post.handle.replace("@", "")[0]?.toUpperCase() ?? "P";
+  const initial = post.handle.replace(/^@/, "")[0]?.toUpperCase() ?? "P";
   const careerPath = resolveCareerIdFromTag(post.career_tag);
 
   return (
@@ -748,7 +748,11 @@ function FeedCard({
       <View style={[styles.meta, { paddingBottom: 110 }]}>
         <Pressable
           onPressIn={() => tapHaptic()}
-          onPress={() => router.push(`/career/${careerPath}`)}
+          onPress={() =>
+            router.push(
+              `/career/${encodeURIComponent(careerPath)}?t=${encodeURIComponent(post.career_tag)}`,
+            )
+          }
           style={styles.careerPill}
         >
           <Text style={styles.careerPillEmoji}>💼</Text>
