@@ -1,0 +1,9 @@
+node_modules
+mobile/node_modules
+dist
+.output
+mobile/.expo
+package-lock.json
+mobile/package-lock.json
+pnpm-lock.yaml
+bun.lock

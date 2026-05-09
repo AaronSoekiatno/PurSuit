@@ -1,15 +1,16 @@
 {
   "name": "pursuit",
   "private": true,
-  "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.49.1"
+    "start": "npm run start --prefix mobile",
+    "mobile": "npm run start --prefix mobile",
+    "mobile:start": "npm run start --prefix mobile",
+    "mobile:android": "npm run android --prefix mobile",
+    "mobile:ios": "npm run ios --prefix mobile",
+    "mobile:typecheck": "npm run typecheck --prefix mobile",
+    "format": "prettier --write \"mobile/**/*.{ts,tsx}\""
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "typescript": "^5.7.3"
+    "prettier": "^3.7.3"
   }
 }
