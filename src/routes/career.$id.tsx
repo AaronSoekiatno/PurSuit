@@ -35,7 +35,7 @@ export const Route = createFileRoute("/career/$id")({
 });
 
 function CareerDetailPage() {
-  const c = Route.useLoaderData();
+  const c = Route.useLoaderData() as import("@/lib/fixtures").Career;
   const [saved, setSaved] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
 
