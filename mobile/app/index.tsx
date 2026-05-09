@@ -26,22 +26,25 @@ import {
 import { runOnJS } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AskAiModal } from "../components/AskAiModal";
+import { useAskAi } from "../contexts/AskAiChatContext";
 import { fetchFeed } from "../lib/feed";
 import type { FeedPost } from "../lib/fixtures";
 import { resolveCareerIdFromTag } from "../lib/fixtures";
+import {
+  homeFeedListRef,
+  homeFeedSwitchToForYouRef,
+} from "../lib/homeFeedListRef";
 import {
   selectionHaptic,
   successHaptic,
   tapHaptic,
 } from "../lib/haptics";
+import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
+import { recordFeedImpression } from "../lib/recentFeedBuffer";
 import { trackEvent } from "../lib/sessionSignals";
 
 const WIN_H = Dimensions.get("window").height;
 const WIN_W = Dimensions.get("window").width;
-
-/** Delay before treating a tap as “single” so double-tap can cancel it. */
-const DOUBLE_TAP_MS = 300;
 
 /** Matches `styles.rail`: avatar → … → save → share → AI anchored above tab bar. */
 const RAIL_ANCHOR_BOTTOM = 118;
@@ -147,6 +150,9 @@ function ClipSeekBar({
   );
 }
 
+/** TikTok-style double-tap window (ms). */
+const DOUBLE_TAP_MS = 280;
+
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
   if (n >= 10_000) return `${Math.round(n / 1000)}K`;
@@ -157,24 +163,23 @@ function formatCount(n: number): string {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
-  const queryClient = useQueryClient();
-  const feedListRef = useRef<FlatList<FeedPost>>(null);
+  const { visible: askVisible, openFromFeed } = useAskAi();
   const [tab, setTab] = useState<"foryou" | "following">("foryou");
-  const [askOpen, setAskOpen] = useState(false);
-  const [askCareer, setAskCareer] = useState("Data Analyst");
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    homeFeedSwitchToForYouRef.current = () => {
+      setTab("foryou");
+    };
+    return () => {
+      homeFeedSwitchToForYouRef.current = null;
+    };
+  }, []);
 
   const { data: posts, isLoading, isFetching } = useQuery({
     queryKey: ["feed"],
     queryFn: fetchFeed,
   });
-
-  const refreshFeedFromHomeTab = useCallback(() => {
-    tapHaptic();
-    setTab("foryou");
-    feedListRef.current?.scrollToOffset({ offset: 0, animated: true });
-    void queryClient.invalidateQueries({ queryKey: ["feed"] });
-  }, [queryClient]);
 
   const items = posts ?? [];
 
@@ -184,7 +189,7 @@ export default function HomeScreen() {
       const post = v?.item as FeedPost | undefined;
       if (post) {
         setActiveId(post.id);
-        setAskCareer(post.career_tag);
+        recordFeedImpression(post);
       }
     },
     [],
@@ -243,8 +248,11 @@ export default function HomeScreen() {
         </View>
       ) : (
         <FlatList
-          ref={feedListRef}
+          ref={(el) => {
+            homeFeedListRef.current = el;
+          }}
           data={listData}
+          scrollEnabled={!askVisible}
           keyExtractor={(item) => item.id}
           pagingEnabled
           nestedScrollEnabled
@@ -258,8 +266,7 @@ export default function HomeScreen() {
               post={item}
               isActive={isFocused && activeId === item.id}
               onAskAi={() => {
-                setAskCareer(item.career_tag);
-                setAskOpen(true);
+                openFromFeed(item);
                 void trackEvent({ type: "ask_ai", career: item.career_tag });
               }}
             />
@@ -310,17 +317,6 @@ export default function HomeScreen() {
           <ActivityIndicator color="#fff" size="large" />
         </View>
       ) : null}
-
-      <BottomBar
-        bottomInset={insets.bottom}
-        onHomePressWhenActive={refreshFeedFromHomeTab}
-      />
-
-      <AskAiModal
-        visible={askOpen}
-        onClose={() => setAskOpen(false)}
-        career={askCareer}
-      />
     </View>
   );
 }
@@ -668,7 +664,6 @@ function FeedCard({
           <ActivityIndicator color="#fff" size="large" />
         </View>
       ) : null}
-
       <View style={styles.rail}>
         <View style={styles.avatarWrap}>
           <LinearGradient
@@ -745,7 +740,7 @@ function FeedCard({
         </Pressable>
       </View>
 
-      <View style={[styles.meta, { paddingBottom: 110 }]}>
+      <View style={[styles.meta, { paddingBottom: APP_TAB_BAR_HEIGHT + 34 }]}>
         <Pressable
           onPressIn={() => tapHaptic()}
           onPress={() =>
@@ -797,39 +792,6 @@ function RailBtn({
   );
 }
 
-function BottomBar({
-  bottomInset,
-  onHomePressWhenActive,
-}: {
-  bottomInset: number;
-  onHomePressWhenActive?: () => void;
-}) {
-  const padBottom = Math.max(bottomInset, 12);
-  return (
-    <View style={[styles.bottomBar, { paddingBottom: padBottom }]}>
-      <Pressable
-        style={styles.bottomItem}
-        onPressIn={() => tapHaptic()}
-        onPress={() => onHomePressWhenActive?.()}
-      >
-        <Feather name="home" size={24} color="#fff" />
-        <Text style={styles.bottomLabelOn}>Home</Text>
-      </Pressable>
-      <Link href="/create" asChild>
-        <Pressable style={styles.createBtn} onPressIn={() => tapHaptic()}>
-          <Feather name="plus" size={22} color="#000" />
-        </Pressable>
-      </Link>
-      <Link href="/profile" asChild>
-        <Pressable style={styles.bottomItem} onPressIn={() => tapHaptic()}>
-          <Feather name="user" size={24} color="rgba(255,255,255,0.6)" />
-          <Text style={styles.bottomLabel}>Profile</Text>
-        </Pressable>
-      </Link>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
   center: {
@@ -866,7 +828,7 @@ const styles = StyleSheet.create({
   rail: {
     position: "absolute",
     right: 12,
-    bottom: 118,
+    bottom: APP_TAB_BAR_HEIGHT + 42,
     zIndex: 30,
     alignItems: "center",
     gap: 28,
@@ -1009,7 +971,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 20,
     right: 20,
-    bottom: 76,
+    bottom: APP_TAB_BAR_HEIGHT + 12,
     paddingVertical: 12,
     justifyContent: "center",
     zIndex: 35,

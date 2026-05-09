@@ -12,17 +12,18 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AskAiModal } from "../../components/AskAiModal";
+import { useAskAi } from "../../contexts/AskAiChatContext";
 import { fetchCareerFromDb, mapCareerRowToCareer } from "../../lib/careerRemote";
 import { careers } from "../../lib/fixtures";
 import { tapHaptic } from "../../lib/haptics";
+import { APP_TAB_BAR_HEIGHT } from "../../lib/layout";
 import { slugify } from "../../lib/slug";
 
 export default function CareerDetailScreen() {
   const { id, t } = useLocalSearchParams<{ id?: string; t?: string }>();
   const insets = useSafeAreaInsets();
+  const { visible: askVisible, openFromCareer } = useAskAi();
   const [saved, setSaved] = useState(false);
-  const [askOpen, setAskOpen] = useState(false);
 
   const rawId = typeof id === "string" ? id : Array.isArray(id) ? id[0] : "";
   const titleFromFeed =
@@ -50,7 +51,10 @@ export default function CareerDetailScreen() {
       <View
         style={[
           styles.missRoot,
-          { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 },
+          {
+            paddingTop: insets.top + 8,
+            paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 24,
+          },
         ]}
       >
         <ActivityIndicator color="#fff" size="large" />
@@ -63,7 +67,7 @@ export default function CareerDetailScreen() {
       <View
         style={[
           styles.missRoot,
-          { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 },
+          { paddingTop: insets.top + 8, paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 24 },
         ]}
       >
         <Text style={styles.miss}>Career not found.</Text>
@@ -88,7 +92,8 @@ export default function CareerDetailScreen() {
   return (
     <ScrollView
       style={styles.root}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 28 }}
+      scrollEnabled={!askVisible}
+      contentContainerStyle={{ paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 28 }}
     >
       <View style={[styles.toolbar, { paddingTop: insets.top + 8 }]}>
         <Pressable
@@ -126,7 +131,7 @@ export default function CareerDetailScreen() {
       <Pressable
         style={styles.aiBtn}
         onPressIn={() => tapHaptic()}
-        onPress={() => setAskOpen(true)}
+        onPress={() => openFromCareer(c)}
       >
         <Feather name="zap" size={16} color="#fff" />
         <Text style={styles.aiText}>Ask AI about this</Text>
@@ -175,7 +180,6 @@ export default function CareerDetailScreen() {
         ))}
       </Section>
 
-      <AskAiModal visible={askOpen} onClose={() => setAskOpen(false)} career={c.title} />
     </ScrollView>
   );
 }

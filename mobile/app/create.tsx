@@ -5,12 +5,18 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { tapHaptic } from "../lib/haptics";
+import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
 
 export default function CreateScreen() {
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 }]}>
+    <View
+      style={[
+        styles.root,
+        { paddingTop: insets.top + 8, paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 24 },
+      ]}
+    >
       <View style={styles.top}>
         <Link href="/" asChild>
           <Pressable hitSlop={12} onPressIn={() => tapHaptic()}>
