@@ -3,6 +3,7 @@ import { Image } from "expo-image";
 import { useIsFocused } from "@react-navigation/native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { Link, router } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +13,7 @@ import {
   Dimensions,
   FlatList,
   PanResponder,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -27,6 +29,7 @@ import { runOnJS } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAskAi } from "../contexts/AskAiChatContext";
+import { captureFeedVision, registerFeedVision } from "../lib/feedVisionRegistry";
 import { fetchFeed } from "../lib/feed";
 import type { FeedPost } from "../lib/fixtures";
 import { resolveCareerIdFromTag } from "../lib/fixtures";
@@ -42,6 +45,7 @@ import {
 import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
 import { recordFeedImpression } from "../lib/recentFeedBuffer";
 import { trackEvent } from "../lib/sessionSignals";
+import type { VisionPayload } from "../lib/visionTypes";
 
 const WIN_H = Dimensions.get("window").height;
 const WIN_W = Dimensions.get("window").width;
@@ -266,12 +270,11 @@ export default function HomeScreen() {
             <FeedCard
               post={item}
               isActive={isFocused && activeId === item.id}
-              onAskAi={() => {
-                openFromFeed(item);
-                void (async () => {
-                  await trackEvent({ type: "ask_ai", career: item.career_tag });
-                  void queryClient.invalidateQueries({ queryKey: ["careerFit"] });
-                })();
+              onAskAi={async () => {
+                const vision = await captureFeedVision(item.id);
+                openFromFeed(item, vision);
+                void trackEvent({ type: "ask_ai", career: item.career_tag });
+                void queryClient.invalidateQueries({ queryKey: ["careerFit"] });
               }}
             />
           )}
@@ -331,12 +334,16 @@ function FeedClipVideo({
   onPlaybackUpdate,
   onDoubleTapLike,
   clipSeekRef,
+  visionCaptureRef,
+  posterUrl,
 }: {
   uri: string;
   isActive: boolean;
   onPlaybackUpdate?: (info: ClipPlaybackInfo) => void;
   onDoubleTapLike: () => void;
   clipSeekRef: MutableRefObject<((fraction: number) => void) | null>;
+  visionCaptureRef: MutableRefObject<(() => Promise<VisionPayload>) | null>;
+  posterUrl: string | null;
 }) {
   const [pausedByUser, setPausedByUser] = useState(false);
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -417,6 +424,58 @@ function FeedClipVideo({
     [],
   );
 
+  useEffect(() => {
+    if (!isActive) {
+      visionCaptureRef.current = null;
+      return;
+    }
+
+    visionCaptureRef.current = async (): Promise<VisionPayload> => {
+      const imageUrls: string[] = [];
+      if (posterUrl?.startsWith("https://")) imageUrls.push(posterUrl);
+      const imagesBase64: VisionPayload["imagesBase64"] = [];
+
+      if (Platform.OS !== "web") {
+        try {
+          const t =
+            typeof player.currentTime === "number" && Number.isFinite(player.currentTime)
+              ? player.currentTime
+              : 0;
+          const dur =
+            typeof player.duration === "number" &&
+            Number.isFinite(player.duration) &&
+            player.duration > 0
+              ? player.duration
+              : 0;
+          const tSafe = dur > 0 ? Math.min(Math.max(0, t), dur - 0.05) : Math.max(0, t);
+          const t2 =
+            dur > 0 ? Math.min(Math.max(0, t - 2), dur - 0.05) : Math.max(0, t - 2);
+          const times = Array.from(new Set([tSafe, t2])).slice(0, 2);
+          const thumbs = await player.generateThumbnailsAsync(times, { maxWidth: 720 });
+          for (const thumb of thumbs) {
+            const imageRef = await ImageManipulator.manipulate(thumb).renderAsync();
+            const out = await imageRef.saveAsync({
+              compress: 0.82,
+              format: SaveFormat.JPEG,
+              base64: true,
+            });
+            if (out.base64) {
+              imagesBase64.push({ media_type: "image/jpeg", data: out.base64 });
+            }
+          }
+        } catch {
+          /* optional thumbnails */
+        }
+      }
+
+      return { imageUrls, imagesBase64 };
+    };
+
+    return () => {
+      visionCaptureRef.current = null;
+    };
+  }, [isActive, player, posterUrl, visionCaptureRef]);
+
   const showPausedHint = isActive && pausedByUser;
 
   const onOverlayPress = useCallback(() => {
@@ -469,9 +528,11 @@ function FeedClipVideo({
 function FeedSlideshow({
   slides,
   onDoubleTapLike,
+  visionCaptureRef,
 }: {
   slides: FeedPost["slideshow_slides"];
   onDoubleTapLike: () => void;
+  visionCaptureRef: MutableRefObject<(() => Promise<VisionPayload>) | null>;
 }) {
   type SlideRow = FeedPost["slideshow_slides"][number];
   const listRef = useRef<ComponentRef<typeof GHFlatList<SlideRow>>>(null);
@@ -492,6 +553,19 @@ function FeedSlideshow({
       Gesture.Simultaneous(Gesture.Native(), doubleTapGesture),
     [doubleTapGesture],
   );
+
+  useEffect(() => {
+    visionCaptureRef.current = async (): Promise<VisionPayload> => ({
+      imageUrls: slides
+        .slice(0, 8)
+        .map((s) => s.uri)
+        .filter((u) => typeof u === "string" && u.startsWith("https://")),
+      imagesBase64: [],
+    });
+    return () => {
+      visionCaptureRef.current = null;
+    };
+  }, [slides, visionCaptureRef]);
 
   return (
     <View style={styles.mediaLayer}>
@@ -557,7 +631,7 @@ function FeedCard({
 }: {
   post: FeedPost;
   isActive: boolean;
-  onAskAi: () => void;
+  onAskAi: () => void | Promise<void>;
 }) {
   const queryClient = useQueryClient();
   const bumpCareerFit = useCallback(() => {
@@ -573,6 +647,15 @@ function FeedCard({
   });
 
   const clipSeekRef = useRef<((fraction: number) => void) | null>(null);
+  const visionCaptureRef = useRef<(() => Promise<VisionPayload>) | null>(null);
+
+  useEffect(() => {
+    return registerFeedVision(post.id, async () => {
+      const fn = visionCaptureRef.current;
+      if (fn) return fn();
+      return { imageUrls: [], imagesBase64: [] };
+    });
+  }, [post.id]);
 
   const showVideo =
     post.post_type === "video" && Boolean(post.media_video_url?.trim());
@@ -609,14 +692,12 @@ function FeedCard({
     successHaptic();
     setLiked((wasLiked) => {
       if (!wasLiked) {
-        void (async () => {
-          await trackEvent({
-            type: "like",
-            postId: post.id,
-            career: post.career_tag,
-          });
-          bumpCareerFit();
-        })();
+        void trackEvent({
+          type: "like",
+          postId: post.id,
+          career: post.career_tag,
+        });
+        bumpCareerFit();
       }
       return true;
     });
@@ -629,15 +710,13 @@ function FeedCard({
       const sec = (Date.now() - start) / 1000;
       if (sec < 0.25) return;
       const fraction = Math.min(1, sec / 42);
-      void (async () => {
-        await trackEvent({
-          type: "view",
-          postId: post.id,
-          career: post.career_tag,
-          fraction,
-        });
-        bumpCareerFit();
-      })();
+      void trackEvent({
+        type: "view",
+        postId: post.id,
+        career: post.career_tag,
+        fraction,
+      });
+      bumpCareerFit();
     };
   }, [isActive, post.id, post.career_tag, bumpCareerFit]);
 
@@ -659,11 +738,14 @@ function FeedCard({
           onPlaybackUpdate={onClipPlaybackUpdate}
           onDoubleTapLike={onDoubleTapLike}
           clipSeekRef={clipSeekRef}
+          visionCaptureRef={visionCaptureRef}
+          posterUrl={post.media_poster_url ?? null}
         />
       ) : showSlideshow ? (
         <FeedSlideshow
           slides={post.slideshow_slides}
           onDoubleTapLike={onDoubleTapLike}
+          visionCaptureRef={visionCaptureRef}
         />
       ) : null}
 
@@ -698,14 +780,12 @@ function FeedCard({
             const next = !liked;
             setLiked(next);
             if (next) {
-              void (async () => {
-                await trackEvent({
-                  type: "like",
-                  postId: post.id,
-                  career: post.career_tag,
-                });
-                bumpCareerFit();
-              })();
+              void trackEvent({
+                type: "like",
+                postId: post.id,
+                career: post.career_tag,
+              });
+              bumpCareerFit();
             }
           }}
         />
@@ -726,14 +806,12 @@ function FeedCard({
             const next = !saved;
             setSaved(next);
             if (next) {
-              void (async () => {
-                await trackEvent({
-                  type: "save",
-                  postId: post.id,
-                  career: post.career_tag,
-                });
-                bumpCareerFit();
-              })();
+              void trackEvent({
+                type: "save",
+                postId: post.id,
+                career: post.career_tag,
+              });
+              bumpCareerFit();
             }
           }}
         />
