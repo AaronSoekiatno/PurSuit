@@ -7,7 +7,7 @@ import { AskAiSheet } from "@/components/AskAiSheet";
 import { careers } from "@/lib/fixtures";
 
 export const Route = createFileRoute("/career/$id")({
-  loader: ({ params }) => {
+  loader: ({ params }): import("@/lib/fixtures").Career => {
     const c = careers.find((x) => x.id === params.id);
     if (!c) throw notFound();
     return c;
