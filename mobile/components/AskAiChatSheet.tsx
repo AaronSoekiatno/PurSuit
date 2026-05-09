@@ -1,23 +1,16 @@
-import BottomSheet, {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetFlatList,
-  BottomSheetFooter,
-  type BottomSheetFooterProps,
-  type BottomSheetFlatListMethods,
-  BottomSheetTextInput,
-} from "@gorhom/bottom-sheet";
 import { Feather } from "@expo/vector-icons";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { LayoutChangeEvent } from "react-native";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import {
   ActivityIndicator,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -27,13 +20,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAskAi } from "../contexts/AskAiChatContext";
 import type { ChatMessage } from "../lib/askAiTypes";
 
-/** Min space to reserve at list bottom so bubbles clear the floating composer (footer height varies with multiline input). */
-const LIST_BOTTOM_INSET = 200;
+/** Padding under last bubble (composer sits below the ScrollView, not overlaid). */
+const LIST_END_PADDING = 16;
 
-/** While the sheet is settling after open, content-size changes snap to the bottom. */
-const OPEN_SCROLL_SETTLE_MS = 700;
-
-/** Tight padding between keyboard top and composer when typing (safe-area padding handles the idle case). */
 const KEYBOARD_BOTTOM_GAP = 6;
 
 const MD_STYLES = StyleSheet.create({
@@ -94,13 +83,10 @@ const MD_STYLES = StyleSheet.create({
   },
 });
 
-/** Keeps draft text in local state so the sheet footer identity is stable while typing (avoids keyboard dismiss). */
-function ChatComposerFooter({
-  footerProps,
+function ChatComposer({
   sending,
   onSend,
 }: {
-  footerProps: BottomSheetFooterProps;
   sending: boolean;
   onSend: (text: string) => Promise<void>;
 }) {
@@ -119,9 +105,7 @@ function ChatComposerFooter({
     };
   }, []);
 
-  const stripBottom = keyboardOpen
-    ? KEYBOARD_BOTTOM_GAP
-    : Math.max(insets.bottom, 12);
+  const padBottom = keyboardOpen ? KEYBOARD_BOTTOM_GAP : Math.max(insets.bottom, 12);
 
   const submit = useCallback(async () => {
     const t = draft.trim();
@@ -130,42 +114,38 @@ function ChatComposerFooter({
     await onSend(t);
   }, [draft, sending, onSend]);
 
-  // Footer `bottomInset` lifts the bar and leaves the home-indicator gap outside the view tree so
-  // list content can show through; safe-area padding lives inside `composerStrip` instead.
   return (
-    <BottomSheetFooter {...footerProps} bottomInset={0}>
-      <View style={[styles.composerStrip, { paddingBottom: stripBottom }]}>
-        <View style={styles.composer}>
-          <BottomSheetTextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Message…"
-            placeholderTextColor="#64748b"
-            style={styles.input}
-            multiline
-            maxLength={4000}
-            editable={!sending}
-            blurOnSubmit={false}
-            onSubmitEditing={() => void submit()}
-          />
-          <Pressable
-            onPress={() => void submit()}
-            style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnOff]}
-            disabled={!draft.trim() || sending}
-          >
-            {sending ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Feather name="send" size={18} color="#fff" />
-            )}
-          </Pressable>
-        </View>
+    <View style={[styles.composerStrip, { paddingBottom: padBottom }]}>
+      <View style={styles.composer}>
+        <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="Message…"
+          placeholderTextColor="#64748b"
+          style={styles.input}
+          multiline
+          maxLength={4000}
+          editable={!sending}
+          blurOnSubmit={false}
+          onSubmitEditing={() => void submit()}
+        />
+        <Pressable
+          onPress={() => void submit()}
+          style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnOff]}
+          disabled={!draft.trim() || sending}
+        >
+          {sending ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Feather name="send" size={18} color="#fff" />
+          )}
+        </Pressable>
       </View>
-    </BottomSheetFooter>
+    </View>
   );
 }
 
-function Bubble({ msg }: { msg: ChatMessage }) {
+function Bubble({ msg }: { msg: ChatMessage }): ReactElement {
   const isUser = msg.role === "user";
   return (
     <View style={[styles.bubbleRow, isUser && styles.bubbleRowUser]}>
@@ -173,17 +153,21 @@ function Bubble({ msg }: { msg: ChatMessage }) {
         {isUser ? (
           <Text style={[styles.bubbleText, styles.bubbleTextUser]}>{msg.content}</Text>
         ) : (
-          <Markdown style={MD_STYLES}>{msg.content}</Markdown>
+          <View style={styles.markdownBox}>
+            <Markdown style={MD_STYLES}>{msg.content}</Markdown>
+          </View>
         )}
       </View>
     </View>
   );
 }
 
+/**
+ * Plain Modal + RN ScrollView only — no @gorhom/bottom-sheet inside Modal (that combo often breaks
+ * iOS scroll/contentSize). Snap-to-expand gestures removed; backdrop tap + X close.
+ */
 export function AskAiChatSheet() {
   const insets = useSafeAreaInsets();
-  const listRef = useRef<BottomSheetFlatListMethods>(null);
-  const listViewportHRef = useRef(0);
 
   const {
     visible,
@@ -197,55 +181,15 @@ export function AskAiChatSheet() {
   } = useAskAi();
 
   const { width: winW, height: winH } = useWindowDimensions();
-
-  const snapPoints = useMemo(() => ["72%", "100%"], []);
+  const sheetHeight = Math.min(winH * 0.88, winH - insets.top - 8);
 
   const listContentStyle = useMemo(
-    () => [styles.listContent, { paddingBottom: LIST_BOTTOM_INSET }],
-    [],
-  );
-
-  const scrollChatToBottom = useCallback((animated: boolean) => {
-    listRef.current?.scrollToEnd({ animated });
-  }, []);
-
-  /** FlatList needs a bounded height (`flex:1` in `sheetBody`) or it expands to fit all rows and never scrolls. */
-  const onMessageListLayout = useCallback((e: LayoutChangeEvent) => {
-    listViewportHRef.current = e.nativeEvent.layout.height;
-  }, []);
-
-  const onMessageListContentSizeChange = useCallback(
-    (_w: number, contentH: number) => {
-      if (!visible) return;
-      const viewH = listViewportHRef.current;
-      if (viewH > 0 && contentH > viewH + 1) {
-        const maxOffset = Math.max(0, contentH - viewH);
-        listRef.current?.scrollToOffset({ offset: maxOffset, animated: false });
-      } else {
-        scrollChatToBottom(false);
-      }
-    },
-    [visible, scrollChatToBottom],
-  );
-
-  useEffect(() => {
-    if (!visible) return;
-    requestAnimationFrame(() => scrollChatToBottom(false));
-    const t = setTimeout(() => scrollChatToBottom(true), 100);
-    return () => clearTimeout(t);
-  }, [visible, messages.length, sending, scrollChatToBottom]);
-
-  const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-        opacity={0.48}
-        pressBehavior="close"
-      />
-    ),
-    [],
+    () => [
+      styles.listContent,
+      { paddingBottom: LIST_END_PADDING },
+      messages.length === 0 && styles.listContentWhenEmpty,
+    ],
+    [messages.length],
   );
 
   const sendFromComposer = useCallback(
@@ -256,13 +200,6 @@ export function AskAiChatSheet() {
       await sendMessage(t);
     },
     [sending, sendMessage, clearError],
-  );
-
-  const renderFooter = useCallback(
-    (props: BottomSheetFooterProps) => (
-      <ChatComposerFooter footerProps={props} sending={sending} onSend={sendFromComposer} />
-    ),
-    [sending, sendFromComposer],
   );
 
   const stickyHeader = useMemo(
@@ -317,50 +254,47 @@ export function AskAiChatSheet() {
       {...(Platform.OS === "ios" ? { presentationStyle: "overFullScreen" as const } : {})}
       onRequestClose={close}
     >
-      {/*
-        RN Modal gives a real full-screen host so the sheet lays out reliably (BottomSheetModal’s
-        portal + Expo Router often skipped present(), leaving visible=true and scroll locked).
-      */}
-      <View style={[styles.modalHost, { width: winW, height: winH }]}>
-        <BottomSheet
-          index={0}
-          snapPoints={snapPoints}
-          enableDynamicSizing={false}
-          enablePanDownToClose
-          topInset={insets.top}
-          bottomInset={0}
-          keyboardBehavior="interactive"
-          keyboardBlurBehavior="none"
-          android_keyboardInputMode="adjustResize"
-          onClose={close}
-          backdropComponent={renderBackdrop}
-          handleIndicatorStyle={styles.handleIndicator}
-          handleStyle={styles.handleOuter}
-          backgroundStyle={styles.sheetBg}
-          footerComponent={renderFooter}
-        >
-          <View style={styles.sheetBody}>
-            {stickyHeader}
-            <BottomSheetFlatList
-              ref={listRef}
-              style={styles.messageList}
-              data={messages}
-              keyExtractor={(_, i) => `m-${i}`}
-              renderItem={({ item }) => <Bubble msg={item} />}
-              contentContainerStyle={listContentStyle}
-              onLayout={onMessageListLayout}
-              onContentSizeChange={onMessageListContentSizeChange}
-              ListEmptyComponent={
-                <Text style={styles.empty}>
-                  Ask about this screen, the career on the card, or your session recap. I’ll stay
-                  in career-exploration territory.
-                </Text>
-              }
-              ListFooterComponent={listFooter}
-            />
-          </View>
-        </BottomSheet>
-      </View>
+      {visible ? (
+        <View style={[styles.modalHost, { width: winW, height: winH }]}>
+          <Pressable style={styles.backdrop} onPress={close} accessibilityLabel="Dismiss" />
+
+          <KeyboardAvoidingView
+            style={styles.keyboardAvoid}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={0}
+          >
+            <View style={[styles.sheet, { height: sheetHeight, width: winW }]}>
+              <View style={styles.handleOuter}>
+                <View style={styles.handleIndicator} />
+              </View>
+
+              {stickyHeader}
+
+              <ScrollView
+                style={styles.messageList}
+                contentContainerStyle={listContentStyle}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+                contentInsetAdjustmentBehavior={
+                  Platform.OS === "ios" ? "never" : undefined
+                }
+              >
+                {messages.length === 0 ? (
+                  <Text style={styles.empty}>
+                    Ask about this screen, the career on the card, or your session recap. I’ll stay
+                    in career-exploration territory.
+                  </Text>
+                ) : (
+                  messages.map((msg, i) => <Bubble key={`m-${i}`} msg={msg} />)
+                )}
+                {listFooter}
+              </ScrollView>
+
+              <ChatComposer sending={sending} onSend={sendFromComposer} />
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      ) : null}
     </Modal>
   );
 }
@@ -368,14 +302,33 @@ export function AskAiChatSheet() {
 const styles = StyleSheet.create({
   modalHost: {
     flex: 1,
+    justifyContent: "flex-end",
     backgroundColor: "transparent",
   },
-  sheetBg: {
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.48)",
+    zIndex: 0,
+  },
+  /** Must fill the modal so iOS measures keyboard vs full screen; otherwise the sheet sits too high. */
+  keyboardAvoid: {
+    flex: 1,
+    justifyContent: "flex-end",
+    width: "100%",
+    zIndex: 1,
+  },
+  sheet: {
+    alignSelf: "center",
     backgroundColor: "#0f172a",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    overflow: "hidden",
+    flexDirection: "column",
   },
   handleOuter: {
     paddingTop: 10,
     paddingBottom: 4,
+    alignItems: "center",
   },
   handleIndicator: {
     width: 44,
@@ -383,11 +336,10 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: "#64748b",
   },
-  /** Lets the message list use `flex:1` so it gets a real viewport (required for scrolling). */
-  sheetBody: {
+  messageList: {
     flex: 1,
+    minHeight: 0,
   },
-  /** Pinned under the grab handle; only message bubbles scroll below. */
   stickyHeader: {
     flexShrink: 0,
     paddingHorizontal: 16,
@@ -396,9 +348,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(255,255,255,0.1)",
     backgroundColor: "#0f172a",
-  },
-  messageList: {
-    flex: 1,
   },
   headRow: {
     flexDirection: "row",
@@ -428,6 +377,9 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 16,
     paddingTop: 4,
+  },
+  /** Avoid `flexGrow: 1` on real chats — common iOS ScrollView wrong content-extent bug. */
+  listContentWhenEmpty: {
     flexGrow: 1,
   },
   empty: {
@@ -457,11 +409,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  markdownBox: { alignSelf: "stretch" },
   bubbleUser: { backgroundColor: "#7c3aed" },
   bubbleAsst: { backgroundColor: "#1e293b" },
   bubbleText: { fontSize: 14, lineHeight: 22 },
   bubbleTextUser: { color: "#fff" },
-  /** Opaque band behind the composer — includes safe-area padding so nothing scrolls visible under the home indicator. */
   composerStrip: {
     backgroundColor: "#0f172a",
   },
