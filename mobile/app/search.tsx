@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { careers, type Career } from "../lib/fixtures";
 import { selectionHaptic, tapHaptic } from "../lib/haptics";
+import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
 
 const FILTERS = ["All", "Tech", "Design", "Healthcare", "Engineering", "Remote-friendly"];
 
@@ -75,7 +76,7 @@ export default function SearchScreen() {
         numColumns={2}
         keyExtractor={(c) => c.id}
         columnWrapperStyle={styles.column}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 24 }}
         renderItem={({ item }: { item: Career }) => (
           <Pressable
             style={styles.card}

@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { careers } from "../lib/fixtures";
 import { selectionHaptic, tapHaptic } from "../lib/haptics";
+import { APP_TAB_BAR_HEIGHT } from "../lib/layout";
 import { getCareerFitFromSignals } from "../lib/traitFit";
 
 const TABS = ["Saved Careers", "Saved Videos", "Recaps"] as const;
@@ -27,7 +28,7 @@ export default function ProfileScreen() {
   return (
     <ScrollView
       style={styles.root}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+      contentContainerStyle={{ paddingBottom: insets.bottom + APP_TAB_BAR_HEIGHT + 32 }}
     >
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.row}>
