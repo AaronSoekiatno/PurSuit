@@ -6,11 +6,12 @@ import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { TraitRadarChart } from "../components/TraitRadarChart";
 import { careers } from "../lib/fixtures";
 import { selectionHaptic, tapHaptic } from "../lib/haptics";
 import { getCareerFitFromSignals } from "../lib/traitFit";
 
-const TABS = ["Saved Careers", "Saved Videos", "Recaps"] as const;
+const TABS = ["Saved Careers", "Saved Videos"] as const;
 
 type ProfileTab = (typeof TABS)[number];
 
@@ -46,20 +47,6 @@ export default function ProfileScreen() {
         </Link>
       </View>
 
-      <Pressable
-        style={styles.wrappedBanner}
-        onPressIn={() => tapHaptic()}
-        onPress={() => router.push("/wrapped")}
-      >
-        <View>
-          <Text style={styles.bannerTitle}>Your Session Wrapped</Text>
-          <Text style={styles.bannerSub}>See what you've been exploring</Text>
-        </View>
-        <LinearGradient colors={["#9333ea", "#4f46e5"]} style={styles.bannerCta}>
-          <Text style={styles.bannerCtaText}>View</Text>
-        </LinearGradient>
-      </Pressable>
-
       <View style={styles.fitCard}>
         {fit?.recommendedCareer ? (
           <>
@@ -73,6 +60,13 @@ export default function ProfileScreen() {
           </Text>
         )}
       </View>
+
+      {fit ? (
+        <TraitRadarChart
+          userVector={fit.userVector}
+          recommendedCareer={fit.recommendedCareer}
+        />
+      ) : null}
 
       <View style={styles.tabs}>
         {TABS.map((t) => (
@@ -108,9 +102,6 @@ export default function ProfileScreen() {
         {tab === "Saved Videos" && (
           <Empty msg="No saved videos yet. Tap the bookmark on any video." />
         )}
-        {tab === "Recaps" && (
-          <Empty msg="Open Wrapped to generate your first recap." />
-        )}
       </View>
     </ScrollView>
   );
@@ -139,24 +130,8 @@ const styles = StyleSheet.create({
   avatarLetter: { fontSize: 22, fontWeight: "700", color: "#fff" },
   name: { fontSize: 16, fontWeight: "700", color: "#fff" },
   handle: { marginTop: 2, fontSize: 12, color: "#94a3b8" },
-  wrappedBanner: {
-    marginTop: 22,
-    marginHorizontal: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#334155",
-    backgroundColor: "#0f172a",
-    padding: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  bannerTitle: { fontSize: 14, fontWeight: "700", color: "#fff" },
-  bannerSub: { marginTop: 4, fontSize: 11, color: "#94a3b8" },
-  bannerCta: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
-  bannerCtaText: { fontSize: 12, fontWeight: "700", color: "#fff" },
   fitCard: {
-    marginTop: 16,
+    marginTop: 22,
     marginHorizontal: 20,
     borderRadius: 16,
     borderWidth: 1,
@@ -167,7 +142,6 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     gap: 6,
   },
-  fitLabel: { fontSize: 11, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5 },
   fitRecommendationLead: {
     marginTop: 0,
     fontSize: 17,
