@@ -1,16 +1,14 @@
 # PurSuit
 
-## Title and brief overview
+**PurSuit** is short-form **career discovery** with **grounded AI**: a vertical video-style feed where engagement shapes a **trait profile** and **career recommendations**, and an **Ask AI chatbot** answers in context (including **what is on screen**) instead of generic chat.
 
-**PurSuit** is short-form **career discovery** with **grounded AI**: a vertical video-style feed where engagement shapes a **trait profile** and **career recommendations**, and **Ask AI** answers in context (including **what is on screen**) instead of generic chat.
-
-**Why it matters for hiring:** It is a small but end-to-end slice of modern product work — **Expo / React Native** client, **Supabase** data and **Edge Functions**, and **Anthropic Claude** behind a deliberate **prompt + JSON grounding + optional vision** contract — with clear **privacy boundaries** (API keys on the server; session-scoped engagement signals).
+It's an end-to-end slice of modern product work — **Expo / React Native** client, **Supabase** data and **Edge Functions**, and **Anthropic Claude** behind a deliberate **prompt + JSON grounding + optional vision** contract — with clear **privacy boundaries** (API keys on the server; session-scoped engagement signals).
 
 ---
 
 ## Table of contents
 
-- [Title and brief overview](#title-and-brief-overview)
+- [Title and brief overview](#pursuit)
 - [Features](#features)
 - [Technologies used](#technologies-used)
 - [How to install and run](#how-to-install-and-run)
@@ -148,7 +146,3 @@ npm run mobile:typecheck
 - **Feed UX at 60fps-adjacent** — Coordinating **Reanimated**, **Gesture Handler**, and a **FlatList**-style vertical feed with overlays (seek bar, rail, bottom bar) without breaking scroll or focus.
 - **Session-only inference** — Storing engagement **in memory** for privacy and simplicity while still driving a responsive **React Query**–backed profile and radar; invalidating caches when signals clear.
 - **Production-shaped mobile security** — Keeping **Anthropic** keys only on the server, using the **anon** key for client → Supabase function calls, and surfacing **non-2xx** errors clearly in the chat sheet (`fetch` to `functions/v1/pursuit-chat` instead of opaque client errors).
-
----
-
-*Hackathon / portfolio project — PurSuit.*
